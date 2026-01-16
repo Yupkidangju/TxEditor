@@ -8,3 +8,4 @@
 - 개발/빌드 스크립트: typecheck/lint/test/tauri build 실행 경로 정리
 - 문서 정리: spec.md/designs.md 정합성 동기화 및 Git 정책 명시
 - Git 정책 변경: 소스코드 및 문서 업로드(빌드 산출물 제외)
+- Git 업로드 정비: 로컬 전용 문서(spec/designs/summary 등) 원격 제외

@@ -37,4 +37,4 @@ npm.cmd test
 
 ## 6. Git 업로드 정책
 
-Git에는 소스코드와 문서를 업로드하며, `node_modules/`, `dist/`, `src-tauri/target/` 등 빌드 산출물은 제외합니다.
+Git에는 소스코드를 업로드하며, 문서는 `README.md`, `CHANGELOG.md`, `BUILD_GUIDE.md`만 업로드합니다. 빌드 산출물(`node_modules/`, `dist/`, `src-tauri/target/` 등)은 제외합니다.

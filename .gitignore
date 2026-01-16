@@ -10,3 +10,11 @@ src-tauri/gen/
 # IDE
 .idea/
 .vscode/
+
+# Local-only docs (Git에는 업로드하지 않음)
+spec.md
+designs.md
+IMPLEMENTATION_SUMMARY.md
+LESSONS_LEARNED.md
+DESIGN_DECISIONS.md
+audit_roadmap.md
