@@ -1,0 +1,11 @@
+{
+  "project_version": "0.1 BETA",
+  "rules": [
+    "Builder Mode 작동 시, 모든 수정 사항에 대해 Tailwind CSS를 적용하여 TxEditor와 유사한 Minimalist UI를 유지하라.",
+    "UTF-8 지원을 위해 Rust 백엔드와 통신할 때 문자열 인코딩 정합성을 매번 체크하라.",
+    "Canvas 객체 선택(Selection) 로직 수정 시, Konva.js의 Transformer 노드와 동기화 상태를 유지하라.",
+    "Windows 환경 전용 API(Clipboard/FS) 사용 시 Tauri 공식 문서를 참조하여 v2 호환성을 유지하라."
+  ],
+  "security_level": "strict"
+}
+

@@ -12,7 +12,7 @@ TxEditor는 Windows 환경에서 ASCII 도형(박스/선/화살표/텍스트)을
 
 ### Git 정책
 
-- 저장소에는 `README.md`, `CHANGELOG.md`, `BUILD_GUIDE.md`만 업로드합니다.
+- 저장소에는 소스코드와 문서를 업로드하며, 빌드 산출물은 제외합니다.
 
 ### 개발 실행
 
@@ -41,7 +41,7 @@ TxEditor is a Windows-first ASCII editor focused on grid-snapped drawing (box/li
 
 ### Git Policy
 
-- Only `README.md`, `CHANGELOG.md`, and `BUILD_GUIDE.md` are pushed to the repository.
+- Source code and documentation are pushed to the repository; build outputs are excluded.
 
 ### Dev
 
@@ -70,7 +70,7 @@ TxEditor は Windows 向けの ASCII エディタで、グリッドスナップ�
 
 ### Git 方針
 
-- リポジトリには `README.md` / `CHANGELOG.md` / `BUILD_GUIDE.md` のみをアップロードします。
+- リポジトリにはソースコードと文書をアップロードし、ビルド成果物は除外します。
 
 ### 開発実行
 
@@ -99,7 +99,7 @@ TxEditor 是以 Windows 為優先的 ASCII 編輯器，主打格點對齊的圖�
 
 ### Git 政策
 
-- 儲存庫僅上傳 `README.md`、`CHANGELOG.md`、`BUILD_GUIDE.md`。
+- 儲存庫上傳原始碼與文件，並排除建置產物。
 
 ### 開發執行
 
@@ -128,7 +128,7 @@ TxEditor 是面向 Windows 的 ASCII 编辑器，重点是基于网格吸附的�
 
 ### Git 政策
 
-- 仓库仅推送 `README.md`、`CHANGELOG.md`、`BUILD_GUIDE.md`。
+- 仓库推送源码与文档，排除构建产物。
 
 ### 开发运行
 
