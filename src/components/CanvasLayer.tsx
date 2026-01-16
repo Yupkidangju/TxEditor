@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Arrow, Circle, Layer, Line, Rect, Stage, Text } from 'react-konva'
+import { Arrow, Circle, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva'
 import { createId, normalizeBox, type Shape } from '../core/shapes'
 import { snapToGrid } from '../core/grid'
 import { useEditorStore } from '../store/editorStore'
@@ -35,10 +35,12 @@ export default function CanvasLayer() {
   const selectedShapeId = useEditorStore((s) => s.selectedShapeId)
   const addShape = useEditorStore((s) => s.addShape)
   const removeShape = useEditorStore((s) => s.removeShape)
+  const updateShape = useEditorStore((s) => s.updateShape)
   const setSelectedShapeId = useEditorStore((s) => s.setSelectedShapeId)
   const setCursor = useEditorStore((s) => s.setCursor)
   const { ref, size } = useElementSize<HTMLDivElement>()
   const stageRef = useRef<import('konva/lib/Stage').Stage | null>(null)
+  const transformerRef = useRef<import('konva/lib/shapes/Transformer').Transformer | null>(null)
   const draftRef = useRef<{ start: { x: number; y: number }; shape: Shape } | null>(null)
   const [draftShape, setDraftShape] = useState<Shape | null>(null)
 
@@ -82,6 +84,29 @@ export default function CanvasLayer() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [removeShape, selectedShapeId])
+
+  useEffect(() => {
+    const transformer = transformerRef.current
+    const stage = stageRef.current
+    if (!transformer || !stage) return
+
+    if (activeTool !== 'select' || !selectedShapeId) {
+      transformer.nodes([])
+      transformer.getLayer()?.batchDraw()
+      return
+    }
+
+    const selected = shapes.find((s) => s.id === selectedShapeId)
+    if (!selected || selected.type !== 'box') {
+      transformer.nodes([])
+      transformer.getLayer()?.batchDraw()
+      return
+    }
+
+    const node = stage.findOne(`#${selectedShapeId}`)
+    transformer.nodes(node ? [node] : [])
+    transformer.getLayer()?.batchDraw()
+  }, [activeTool, selectedShapeId, shapes])
 
   const updateCursorFromEvent = () => {
     const stage = stageRef.current
@@ -187,16 +212,55 @@ export default function CanvasLayer() {
       return (
         <Rect
           key={shape.id}
+          id={shape.id}
           x={shape.x}
           y={shape.y}
           width={shape.width}
           height={shape.height}
           stroke={stroke}
           strokeWidth={2}
+          draggable={activeTool === 'select' && isSelected}
           onMouseDown={(e) => {
             if (activeTool !== 'select') return
             e.cancelBubble = true
             setSelectedShapeId(shape.id)
+          }}
+          onDragEnd={(e) => {
+            const node = e.target
+            const snapped = snapToGrid({ x: node.x(), y: node.y() }, gridCellSize)
+            node.position(snapped)
+            updateShape(shape.id, (prev) => (prev.type === 'box' ? { ...prev, x: snapped.x, y: snapped.y } : prev))
+          }}
+          onTransformEnd={(e) => {
+            const node = e.target
+            const scaleX = node.scaleX()
+            const scaleY = node.scaleY()
+
+            const rawWidth = node.width() * scaleX
+            const rawHeight = node.height() * scaleY
+
+            node.scaleX(1)
+            node.scaleY(1)
+
+            const snappedPos = snapToGrid({ x: node.x(), y: node.y() }, gridCellSize)
+            const snappedWidth = Math.max(
+              gridCellSize,
+              Math.round(rawWidth / gridCellSize) * gridCellSize
+            )
+            const snappedHeight = Math.max(
+              gridCellSize,
+              Math.round(rawHeight / gridCellSize) * gridCellSize
+            )
+
+            node.position(snappedPos)
+            node.width(snappedWidth)
+            node.height(snappedHeight)
+
+            updateShape(shape.id, (prev) =>
+              prev.type === 'box'
+                ? { ...prev, x: snappedPos.x, y: snappedPos.y, width: snappedWidth, height: snappedHeight }
+                : prev
+            )
           }}
         />
       )
@@ -241,15 +305,23 @@ export default function CanvasLayer() {
     return (
       <Text
         key={shape.id}
+        id={shape.id}
         x={shape.x}
         y={shape.y}
         text={shape.text}
         fontSize={14}
         fill={stroke}
+        draggable={activeTool === 'select' && isSelected}
         onMouseDown={(e) => {
           if (activeTool !== 'select') return
           e.cancelBubble = true
           setSelectedShapeId(shape.id)
+        }}
+        onDragEnd={(e) => {
+          const node = e.target
+          const snapped = snapToGrid({ x: node.x(), y: node.y() }, gridCellSize)
+          node.position(snapped)
+          updateShape(shape.id, (prev) => (prev.type === 'text' ? { ...prev, x: snapped.x, y: snapped.y } : prev))
         }}
       />
     )
@@ -275,6 +347,13 @@ export default function CanvasLayer() {
             ))}
             {shapes.map(renderShape)}
             {draftShape ? renderShape(draftShape) : null}
+            <Transformer
+              ref={(node) => {
+                transformerRef.current = node
+              }}
+              rotateEnabled={false}
+              enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
+            />
           </Layer>
         </Stage>
       ) : null}

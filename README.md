@@ -9,6 +9,7 @@ TxEditor는 Windows 환경에서 ASCII 도형(박스/선/화살표/텍스트)을
 - 도구 선택(Select/Box/Arrow/Line/Text) 기반 편집 흐름
 - 고정 폭 그리드 스냅 기반 캔버스(React Konva)
 - 기본 그리기/선택: 드래그로 Box/Line/Arrow 생성, 클릭으로 선택
+- 이동/리사이즈: Select에서 Box 드래그 이동, 핸들로 리사이즈(스냅)
 - 단축키: S/B/A/L/T 전환, Delete로 삭제, Escape로 드래그 취소
 - 내보내기(클립보드/파일) 확장 기반 구조
 
@@ -41,6 +42,7 @@ TxEditor is a Windows-first ASCII editor focused on grid-snapped drawing (box/li
 - Tool-based editing flow (Select/Box/Arrow/Line/Text)
 - Fixed-width grid canvas with snap-to-grid (React Konva)
 - Basic draw/select: drag to create Box/Line/Arrow, click to select
+- Move/resize: in Select, drag Box to move and resize with handles (snapped)
 - Hotkeys: S/B/A/L/T switch, Delete to remove, Escape to cancel drag
 - Export architecture for clipboard/file output
 
@@ -73,6 +75,7 @@ TxEditor は Windows 向けの ASCII エディタで、グリッドスナップ�
 - ツール選択（Select/Box/Arrow/Line/Text）による編集フロー
 - 固定幅グリッド＋スナップ（React Konva）
 - 基本描画/選択: ドラッグで Box/Line/Arrow 作成、クリックで選択
+- 移動/リサイズ: Select で Box をドラッグ移動、ハンドルでリサイズ（スナップ）
 - ショートカット: S/B/A/L/T 切替、Delete で削除、Escape でドラッグ取消
 - クリップボード/ファイル出力の拡張可能な構造
 
@@ -105,6 +108,7 @@ TxEditor 是以 Windows 為優先的 ASCII 編輯器，主打格點對齊的圖�
 - 工具式編輯流程（Select/Box/Arrow/Line/Text）
 - 固定寬度格點畫布與吸附（React Konva）
 - 基本繪製/選取：拖曳建立 Box/Line/Arrow，點擊選取
+- 移動/調整大小：Select 下拖曳 Box 移動，使用控制點調整大小（吸附）
 - 快捷鍵：S/B/A/L/T 切換，Delete 刪除，Escape 取消拖曳
 - 可擴充的匯出架構（剪貼簿/檔案）
 
@@ -137,6 +141,7 @@ TxEditor 是面向 Windows 的 ASCII 编辑器，重点是基于网格吸附的�
 - 工具化编辑流程（Select/Box/Arrow/Line/Text）
 - 等宽网格画布与吸附（React Konva）
 - 基础绘制/选择：拖拽创建 Box/Line/Arrow，点击选择
+- 移动/缩放：Select 下拖拽 Box 移动，使用控制点缩放（吸附）
 - 快捷键：S/B/A/L/T 切换，Delete 删除，Escape 取消拖拽
 - 可扩展导出架构（剪贴板/文件）
 

@@ -12,3 +12,4 @@
 - 히스토리 정리: 로컬 전용 문서가 과거 커밋에 남지 않도록 이력 재작성 후 강제 푸시
 - 편집 기본기: Shape 모델 도입 및 Box/Line/Arrow/Text 렌더링
 - 상호작용: 드래그 생성(그리드 스냅), 클릭 선택, Delete 삭제, Escape 취소
+- 상호작용: Select에서 Box 이동(드래그) 및 리사이즈(Transformer) 추가
