@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useEditorStore, type ToolType } from '../store/editorStore'
 
 type ToolButton = { tool: ToolType; label: string; hotkey: string }
@@ -13,6 +14,24 @@ const TOOL_BUTTONS: ToolButton[] = [
 export default function Toolbar() {
   const activeTool = useEditorStore((s) => s.activeTool)
   const setActiveTool = useEditorStore((s) => s.setActiveTool)
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return
+
+      const key = e.key.toLowerCase()
+      const tool = TOOL_BUTTONS.find((b) => b.hotkey.toLowerCase() === key)?.tool
+      if (!tool) return
+      setActiveTool(tool)
+    }
+
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [setActiveTool])
 
   return (
     <div className="flex h-full w-16 flex-col items-center gap-2 border-r border-slate-200 bg-white p-2">
@@ -47,4 +66,3 @@ export default function Toolbar() {
     </div>
   )
 }
-

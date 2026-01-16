@@ -35,9 +35,14 @@ function TopBar() {
 function StatusBar() {
   const gridCellSize = useEditorStore((s) => s.gridCellSize)
   const activeTool = useEditorStore((s) => s.activeTool)
+  const cursor = useEditorStore((s) => s.cursor)
+  const row = cursor ? Math.floor(cursor.y / gridCellSize) + 1 : null
+  const col = cursor ? Math.floor(cursor.x / gridCellSize) + 1 : null
   return (
     <div className="flex h-8 items-center justify-between border-t border-slate-200 bg-white px-3 text-xs text-slate-700">
-      <div>Ln: -, Col: -</div>
+      <div>
+        Ln: {row ?? '-'}, Col: {col ?? '-'}
+      </div>
       <div className="flex items-center gap-3">
         <div>Tool: {activeTool}</div>
         <div>Snap: {gridCellSize}px</div>
@@ -62,4 +67,3 @@ export default function App() {
     </div>
   )
 }
-
