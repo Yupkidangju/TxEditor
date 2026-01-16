@@ -3,6 +3,5 @@
   "identifier": "main-capability",
   "description": "기본 권한 집합",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save"]
 }
-

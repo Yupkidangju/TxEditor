@@ -11,7 +11,8 @@ TxEditor는 Windows 환경에서 ASCII 도형(박스/선/화살표/텍스트)을
 - 기본 그리기/선택: 드래그로 Box/Line/Arrow 생성, 클릭으로 선택
 - 이동/리사이즈: Select에서 Box 드래그 이동, 핸들로 리사이즈(스냅)
 - 단축키: S/B/A/L/T 전환, Delete로 삭제, Escape로 드래그 취소
-- 내보내기(클립보드/파일) 확장 기반 구조
+- 내보내기: ASCII(.txt) / HTML(.html) / PNG(.png), 개행(LF/CRLF) 선택
+- 한글 윈도우에서 레이아웃 차이 진단: 언어/DPI/폰트폭 등 표시
 
 ### Git 정책
 
@@ -44,7 +45,8 @@ TxEditor is a Windows-first ASCII editor focused on grid-snapped drawing (box/li
 - Basic draw/select: drag to create Box/Line/Arrow, click to select
 - Move/resize: in Select, drag Box to move and resize with handles (snapped)
 - Hotkeys: S/B/A/L/T switch, Delete to remove, Escape to cancel drag
-- Export architecture for clipboard/file output
+- Export: ASCII (.txt) / HTML (.html) / PNG (.png), LF/CRLF newline option
+- Diagnostics for Windows layout differences: language/DPI/font width
 
 ### Git Policy
 
@@ -77,7 +79,8 @@ TxEditor は Windows 向けの ASCII エディタで、グリッドスナップ�
 - 基本描画/選択: ドラッグで Box/Line/Arrow 作成、クリックで選択
 - 移動/リサイズ: Select で Box をドラッグ移動、ハンドルでリサイズ（スナップ）
 - ショートカット: S/B/A/L/T 切替、Delete で削除、Escape でドラッグ取消
-- クリップボード/ファイル出力の拡張可能な構造
+- エクスポート: ASCII(.txt) / HTML(.html) / PNG(.png)、改行(LF/CRLF)選択
+- Windows(韓国語環境)差異の診断: 言語/DPI/フォント幅など表示
 
 ### Git 方針
 
@@ -110,7 +113,8 @@ TxEditor 是以 Windows 為優先的 ASCII 編輯器，主打格點對齊的圖�
 - 基本繪製/選取：拖曳建立 Box/Line/Arrow，點擊選取
 - 移動/調整大小：Select 下拖曳 Box 移動，使用控制點調整大小（吸附）
 - 快捷鍵：S/B/A/L/T 切換，Delete 刪除，Escape 取消拖曳
-- 可擴充的匯出架構（剪貼簿/檔案）
+- 匯出：ASCII(.txt) / HTML(.html) / PNG(.png)，換行(LF/CRLF)可選
+- 韓文 Windows 差異診斷：語言/DPI/字寬等資訊顯示
 
 ### Git 政策
 
@@ -143,7 +147,8 @@ TxEditor 是面向 Windows 的 ASCII 编辑器，重点是基于网格吸附的�
 - 基础绘制/选择：拖拽创建 Box/Line/Arrow，点击选择
 - 移动/缩放：Select 下拖拽 Box 移动，使用控制点缩放（吸附）
 - 快捷键：S/B/A/L/T 切换，Delete 删除，Escape 取消拖拽
-- 可扩展导出架构（剪贴板/文件）
+- 导出：ASCII(.txt) / HTML(.html) / PNG(.png)，换行(LF/CRLF)可选
+- 韩文 Windows 差异诊断：语言/DPI/字宽等信息显示
 
 ### Git 政策
 

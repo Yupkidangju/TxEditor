@@ -7,6 +7,9 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 
+# Build automation
+.build/
+
 # IDE
 .idea/
 .vscode/
@@ -18,3 +21,7 @@ IMPLEMENTATION_SUMMARY.md
 LESSONS_LEARNED.md
 DESIGN_DECISIONS.md
 audit_roadmap.md
+
+# Tool artifacts accidentally created by terminal output (local only)
+Traeresources*
+rc-tauri*
