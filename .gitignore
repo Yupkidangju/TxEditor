@@ -9,6 +9,7 @@ src-tauri/gen/
 
 # Build automation
 .build/
+out/
 
 # IDE
 .idea/
@@ -17,6 +18,7 @@ src-tauri/gen/
 # Local-only docs (Git에는 업로드하지 않음)
 spec.md
 designs.md
+Designs.md
 IMPLEMENTATION_SUMMARY.md
 LESSONS_LEARNED.md
 DESIGN_DECISIONS.md
@@ -25,3 +27,4 @@ audit_roadmap.md
 # Tool artifacts accidentally created by terminal output (local only)
 Traeresources*
 rc-tauri*
+tCheck*

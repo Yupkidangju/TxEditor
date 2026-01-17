@@ -1,18 +1,15 @@
-# TxEditor (v0.1 BETA)
+# TxEditor (v0.1)
 
 ## 한국어
 
-TxEditor는 Windows 환경에서 ASCII 도형(박스/선/화살표/텍스트)을 그리드 기반으로 편집하고, UTF-8 텍스트를 안정적으로 내보내는 데 초점을 둔 데스크톱 에디터입니다. (Tauri v2 + Rust + React)
+TxEditor는 Windows 환경에서 “빈 텍스트 버퍼(예: 80x24, 120x80, 160x100)”를 만들고, 그 버퍼에 직접 문자를 배치해 그림을 그리는 100% 텍스트 기반 데스크톱 에디터입니다. (Tauri v2 + Rust + React)
 
 ### 기능
 
-- 도구 선택(Select/Box/Arrow/Line/Text) 기반 편집 흐름
-- 고정 폭 그리드 스냅 기반 캔버스(React Konva)
-- 기본 그리기/선택: 드래그로 Box/Line/Arrow 생성, 클릭으로 선택
-- 이동/리사이즈: Select에서 Box 드래그 이동, 핸들로 리사이즈(스냅)
-- 단축키: S/B/A/L/T 전환, Delete로 삭제, Escape로 드래그 취소
-- 내보내기: ASCII(.txt) / HTML(.html) / PNG(.png), 개행(LF/CRLF) 선택
-- 한글 윈도우에서 레이아웃 차이 진단: 언어/DPI/폰트폭 등 표시
+- 텍스트 버퍼 템플릿: 80x24 / 120x80 / 160x100, 커스텀 크기 생성
+- 100% 텍스트 편집: “도형 → 텍스트 변환 렌더링” 없이 버퍼에 직접 문자 배치
+- 편집 UI: 텍스트 영역에서 직접 편집(줄바꿈/공백 포함)
+- 저장: UTF-8 텍스트(.txt), 개행(LF/CRLF) 선택, Ctrl/Cmd+S
 
 ### Git 정책
 
@@ -29,24 +26,23 @@ npm.cmd run tauri dev
 ### 빌드
 
 ```bash
-npm.cmd run tauri build
+scripts\build.cmd
 ```
+
+빌드가 성공하면 실행파일은 `out/TxEditor.exe`로 복사됩니다.
 
 ---
 
 ## English
 
-TxEditor is a Windows-first ASCII editor focused on grid-snapped drawing (box/line/arrow/text) and robust UTF-8 export. (Tauri v2 + Rust + React)
+TxEditor is a Windows-first, 100% text-based desktop editor that starts by creating an empty text buffer (e.g., 80x24, 120x80, 160x100) and lets you draw by placing characters directly into that buffer. (Tauri v2 + Rust + React)
 
 ### Features
 
-- Tool-based editing flow (Select/Box/Arrow/Line/Text)
-- Fixed-width grid canvas with snap-to-grid (React Konva)
-- Basic draw/select: drag to create Box/Line/Arrow, click to select
-- Move/resize: in Select, drag Box to move and resize with handles (snapped)
-- Hotkeys: S/B/A/L/T switch, Delete to remove, Escape to cancel drag
-- Export: ASCII (.txt) / HTML (.html) / PNG (.png), LF/CRLF newline option
-- Diagnostics for Windows layout differences: language/DPI/font width
+- Text buffer templates: 80x24 / 120x80 / 160x100, plus custom sizes
+- 100% text editing: no “shape → text rendering”; characters are written directly
+- Editor UI: edit directly in a text area (newlines/spaces preserved)
+- Save: UTF-8 text (.txt), LF/CRLF newline option, Ctrl/Cmd+S
 
 ### Git Policy
 
@@ -63,24 +59,23 @@ npm.cmd run tauri dev
 ### Build
 
 ```bash
-npm.cmd run tauri build
+scripts\\build.cmd
 ```
+
+After a successful build, the executable is copied to `out/TxEditor.exe`.
 
 ---
 
 ## 日本語
 
-TxEditor は Windows 向けの ASCII エディタで、グリッドスナップで図形（ボックス/ライン/矢印/テキスト）を編集し、UTF-8 を安定してエクスポートすることを目的とします。(Tauri v2 + Rust + React)
+TxEditor は Windows 向けの 100% テキストベースのデスクトップエディタです。起動時に空のテキストバッファ（例: 80x24, 120x80, 160x100）を作成し、そのバッファへ文字を直接配置して描画します。(Tauri v2 + Rust + React)
 
 ### 機能
 
-- ツール選択（Select/Box/Arrow/Line/Text）による編集フロー
-- 固定幅グリッド＋スナップ（React Konva）
-- 基本描画/選択: ドラッグで Box/Line/Arrow 作成、クリックで選択
-- 移動/リサイズ: Select で Box をドラッグ移動、ハンドルでリサイズ（スナップ）
-- ショートカット: S/B/A/L/T 切替、Delete で削除、Escape でドラッグ取消
-- エクスポート: ASCII(.txt) / HTML(.html) / PNG(.png)、改行(LF/CRLF)選択
-- Windows(韓国語環境)差異の診断: 言語/DPI/フォント幅など表示
+- テキストバッファのテンプレート: 80x24 / 120x80 / 160x100、カスタムサイズ対応
+- 100% テキスト編集: 「図形 → テキスト変換レンダリング」なしで文字を直接配置
+- 編集 UI: テキストエリアで直接編集（改行/空白を保持）
+- 保存: UTF-8 テキスト(.txt)、改行(LF/CRLF)選択、Ctrl/Cmd+S
 
 ### Git 方針
 
@@ -97,24 +92,23 @@ npm.cmd run tauri dev
 ### ビルド
 
 ```bash
-npm.cmd run tauri build
+scripts\\build.cmd
 ```
+
+ビルドが成功すると、実行ファイルは `out/TxEditor.exe` にコピーされます。
 
 ---
 
 ## 中文（繁體）
 
-TxEditor 是以 Windows 為優先的 ASCII 編輯器，主打格點對齊的圖形繪製（方框/線段/箭頭/文字）與穩健的 UTF-8 匯出。(Tauri v2 + Rust + React)
+TxEditor 是以 Windows 為優先、100% 文字為基礎的桌面編輯器。啟動時先建立空白文字緩衝區（例如：80x24、120x80、160x100），並直接在緩衝區內放置字元來繪圖。(Tauri v2 + Rust + React)
 
 ### 功能
 
-- 工具式編輯流程（Select/Box/Arrow/Line/Text）
-- 固定寬度格點畫布與吸附（React Konva）
-- 基本繪製/選取：拖曳建立 Box/Line/Arrow，點擊選取
-- 移動/調整大小：Select 下拖曳 Box 移動，使用控制點調整大小（吸附）
-- 快捷鍵：S/B/A/L/T 切換，Delete 刪除，Escape 取消拖曳
-- 匯出：ASCII(.txt) / HTML(.html) / PNG(.png)，換行(LF/CRLF)可選
-- 韓文 Windows 差異診斷：語言/DPI/字寬等資訊顯示
+- 文字緩衝區模板：80x24 / 120x80 / 160x100，並支援自訂尺寸
+- 100% 文字編輯：不做「圖形 → 文字」轉換渲染，直接放置字元
+- 編輯 UI：在文字區域直接編輯（保留換行/空白）
+- 儲存：UTF-8 文字(.txt)，換行(LF/CRLF)可選，Ctrl/Cmd+S
 
 ### Git 政策
 
@@ -131,24 +125,23 @@ npm.cmd run tauri dev
 ### 建置
 
 ```bash
-npm.cmd run tauri build
+scripts\\build.cmd
 ```
+
+建置成功後，執行檔會複製到 `out/TxEditor.exe`。
 
 ---
 
 ## 中文（简体）
 
-TxEditor 是面向 Windows 的 ASCII 编辑器，重点是基于网格吸附的图形绘制（方框/线段/箭头/文本）与稳定的 UTF-8 导出。(Tauri v2 + Rust + React)
+TxEditor 是面向 Windows 的 100% 文本桌面编辑器。启动时先创建空文本缓冲区（例如：80x24、120x80、160x100），并直接在缓冲区中放置字符来绘图。(Tauri v2 + Rust + React)
 
 ### 功能
 
-- 工具化编辑流程（Select/Box/Arrow/Line/Text）
-- 等宽网格画布与吸附（React Konva）
-- 基础绘制/选择：拖拽创建 Box/Line/Arrow，点击选择
-- 移动/缩放：Select 下拖拽 Box 移动，使用控制点缩放（吸附）
-- 快捷键：S/B/A/L/T 切换，Delete 删除，Escape 取消拖拽
-- 导出：ASCII(.txt) / HTML(.html) / PNG(.png)，换行(LF/CRLF)可选
-- 韩文 Windows 差异诊断：语言/DPI/字宽等信息显示
+- 文本缓冲区模板：80x24 / 120x80 / 160x100，并支持自定义尺寸
+- 100% 文本编辑：不做“图形 → 文本”转换渲染，直接放置字符
+- 编辑 UI：在文本区域直接编辑（保留换行/空白）
+- 保存：UTF-8 文本(.txt)，换行(LF/CRLF)可选，Ctrl/Cmd+S
 
 ### Git 政策
 
@@ -165,6 +158,8 @@ npm.cmd run tauri dev
 ### 构建
 
 ```bash
-npm.cmd run tauri build
+scripts\\build.cmd
 ```
+
+构建成功后，可执行文件会复制到 `out/TxEditor.exe`。
 

@@ -37,24 +37,32 @@ function Invoke-External([string]$DisplayName, [string]$FilePath, [string[]]$Arg
   $argLine = ($ArgumentList | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
   $safe = Get-SafeFileName $DisplayName
   $logPath = Join-Path $LogDir ("step-$safe.log")
+  $stdoutPath = Join-Path $LogDir ("step-$safe.stdout.log")
+  $stderrPath = Join-Path $LogDir ("step-$safe.stderr.log")
   Write-Log 'INFO' "$($DisplayName): $FilePath $argLine"
-  Push-Location -LiteralPath $WorkingDirectory
-  try {
-    "[$((Get-Date).ToString('o'))] $FilePath $argLine" | Out-File -LiteralPath $logPath -Append -Encoding utf8
-    $prevEap = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-      & $FilePath @ArgumentList 2>&1 | Out-File -LiteralPath $logPath -Append -Encoding utf8
-    } finally {
-      $ErrorActionPreference = $prevEap
+  "[$((Get-Date).ToString('o'))] $FilePath $argLine" | Out-File -LiteralPath $logPath -Append -Encoding utf8
+
+  if (Test-Path -LiteralPath $stdoutPath) { Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue }
+  if (Test-Path -LiteralPath $stderrPath) { Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue }
+
+  $p = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+  $exitCode = $p.ExitCode
+
+  if (Test-Path -LiteralPath $stdoutPath) {
+    Get-Content -LiteralPath $stdoutPath -Encoding UTF8 -ReadCount 2000 | ForEach-Object {
+      $_ | Out-File -LiteralPath $logPath -Append -Encoding utf8
     }
-    if ($LASTEXITCODE -ne 0) {
-      throw "$DisplayName failed (exit code $LASTEXITCODE). Log: $logPath"
-    }
-    Write-Log 'INFO' "$($DisplayName) done"
-  } finally {
-    Pop-Location
   }
+  if (Test-Path -LiteralPath $stderrPath) {
+    Get-Content -LiteralPath $stderrPath -Encoding UTF8 -ReadCount 2000 | ForEach-Object {
+      $_ | Out-File -LiteralPath $logPath -Append -Encoding utf8
+    }
+  }
+
+  if ($exitCode -ne 0) {
+    throw "$DisplayName failed (exit code $exitCode). Log: $logPath"
+  }
+  Write-Log 'INFO' "$($DisplayName) done"
 }
 
 function Find-RcDir() {
@@ -140,6 +148,18 @@ function Copy-IfExists([string]$Source, [string]$DestDir) {
     Copy-Item -LiteralPath $Source -Destination $DestDir -Force
   }
 }
+function Get-ProductInfo([string]$Root) {
+  $cfgPath = Join-Path $Root 'src-tauri\tauri.conf.json'
+  if (-not (Test-Path -LiteralPath $cfgPath)) {
+    return @{ productName = 'TxEditor'; version = '0.0.0' }
+  }
+  $cfg = (Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8) | ConvertFrom-Json
+  $pn = [string]$cfg.productName
+  if (-not $pn) { $pn = 'TxEditor' }
+  $ver = [string]$cfg.version
+  if (-not $ver) { $ver = '0.0.0' }
+  return @{ productName = $pn; version = $ver }
+}
 
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ts = Get-Timestamp
@@ -202,6 +222,37 @@ try {
 
   if (-not $SkipBuild) {
     if ($Profile -eq 'debug') {
+      $debugExe = Join-Path $root 'src-tauri\target\debug\txeditor.exe'
+      if (Test-Path -LiteralPath $debugExe) {
+        try {
+          Remove-Item -LiteralPath $debugExe -Force -ErrorAction Stop
+        } catch {
+          throw "Could not remove old debug executable (file may be in use): $debugExe"
+        }
+        if (Test-Path -LiteralPath $debugExe) { throw "Could not remove old debug executable (still exists): $debugExe" }
+      }
+    } else {
+      $releaseExeToClean = Join-Path $root 'src-tauri\target\release\txeditor.exe'
+      if (Test-Path -LiteralPath $releaseExeToClean) {
+        try {
+          Remove-Item -LiteralPath $releaseExeToClean -Force -ErrorAction Stop
+        } catch {
+          throw "Could not remove old release executable (file may be in use): $releaseExeToClean"
+        }
+        if (Test-Path -LiteralPath $releaseExeToClean) { throw "Could not remove old release executable (still exists): $releaseExeToClean" }
+      }
+      $bundleDirToClean = Join-Path $root 'src-tauri\target\release\bundle'
+      if (Test-Path -LiteralPath $bundleDirToClean) {
+        try {
+          Remove-Item -LiteralPath $bundleDirToClean -Recurse -Force -ErrorAction Stop
+        } catch {
+          throw "Could not remove old release bundle directory (may be in use): $bundleDirToClean"
+        }
+        if (Test-Path -LiteralPath $bundleDirToClean) { throw "Could not remove old release bundle directory (still exists): $bundleDirToClean" }
+      }
+    }
+
+    if ($Profile -eq 'debug') {
       Invoke-External 'tauri build' 'npm.cmd' @('run', 'tauri', 'build', '--', '--debug') $root $stepLogsDir
     } else {
       Invoke-External 'tauri build' 'npm.cmd' @('run', 'tauri', 'build') $root $stepLogsDir
@@ -211,6 +262,16 @@ try {
   $releaseExe = Join-Path $root 'src-tauri\target\release\txeditor.exe'
   $bundleDir = Join-Path $root 'src-tauri\target\release\bundle'
   $distDir = Join-Path $root 'dist'
+
+  if ($Profile -ne 'debug') {
+    if (-not (Test-Path -LiteralPath $releaseExe)) {
+      throw "Release executable not found: $releaseExe"
+    }
+    $exeItem = Get-Item -LiteralPath $releaseExe -ErrorAction Stop
+    if ($exeItem.LastWriteTime -lt $start) {
+      throw "Release executable is older than this build start time. exe=$($exeItem.LastWriteTime.ToString('o')), start=$($start.ToString('o'))"
+    }
+  }
 
   $bundleFiles = @()
   if (Test-Path -LiteralPath $bundleDir) {
@@ -226,6 +287,39 @@ try {
     Copy-IfExists $releaseExe (Join-Path $runDir 'release')
     foreach ($f in $bundleFiles) { Copy-IfExists $f (Join-Path $runDir 'bundle') }
     Copy-IfExists $transcriptPath $runDir
+
+    if ($Profile -ne 'debug' -and (Test-Path -LiteralPath $releaseExe)) {
+      $pi = Get-ProductInfo $root
+      $outDir = Join-Path $root 'out'
+      New-Directory $outDir
+      $exeNameVersioned = "$($pi.productName)-$($pi.version)-windows-x64.exe"
+      $exeNameVersionedUnique = "$($pi.productName)-$($pi.version)-windows-x64-$ts.exe"
+      $exeNameLatest = "$($pi.productName).exe"
+      $exeNameLatestUnique = "$($pi.productName)-latest-$ts.exe"
+
+      $exePathVersioned = Join-Path $outDir $exeNameVersioned
+      $exePathVersionedUnique = Join-Path $outDir $exeNameVersionedUnique
+      $exePathLatest = Join-Path $outDir $exeNameLatest
+      $exePathLatestUnique = Join-Path $outDir $exeNameLatestUnique
+
+      Copy-Item -LiteralPath $releaseExe -Destination $exePathVersionedUnique -Force -ErrorAction Stop
+      Write-Log 'INFO' "Output exe (unique versioned): $exePathVersionedUnique"
+
+      try {
+        Copy-Item -LiteralPath $releaseExe -Destination $exePathVersioned -Force -ErrorAction Stop
+        Write-Log 'INFO' "Output exe (versioned): $exePathVersioned"
+      } catch {
+        Write-Log 'WARN' "Could not overwrite output exe (versioned). Kept: $exePathVersionedUnique"
+      }
+
+      try {
+        Copy-Item -LiteralPath $releaseExe -Destination $exePathLatest -Force -ErrorAction Stop
+        Write-Log 'INFO' "Output exe (latest): $exePathLatest"
+      } catch {
+        Copy-Item -LiteralPath $releaseExe -Destination $exePathLatestUnique -Force -ErrorAction Stop
+        Write-Log 'WARN' "Could not overwrite output exe (latest). Output exe (unique latest): $exePathLatestUnique"
+      }
+    }
   }
 
   $quality = @{
