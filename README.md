@@ -10,6 +10,15 @@ TxEditor는 Windows 환경에서 “빈 텍스트 버퍼(예: 80x24, 120x80, 160
 - 100% 텍스트 편집: “도형 → 텍스트 변환 렌더링” 없이 버퍼에 직접 문자 배치
 - 편집 UI: 텍스트 영역에서 직접 편집(줄바꿈/공백 포함)
 - 저장: UTF-8 텍스트(.txt), 개행(LF/CRLF) 선택, Ctrl/Cmd+S
+- 열기: 텍스트(.txt) 파일 열기, Ctrl/Cmd+O
+- Undo/Redo: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y
+- 설정 영속화: 언어/개행/저장 옵션/마지막 파일 경로
+- 리본 메뉴: 도구/옵션을 상단 리본에서 빠르게 선택
+- 도형/선 드로잉: 사각형, 직각선, 화살표(끝점 방향 문자), 프리폼(#/$/%) 드로잉
+- 드로잉 스타일: ASCII(+ - |) / 유니코드(┌─┐, │, → 등) 선택
+- 블록 편집: 사각형 블록 선택 후 복사/잘라내기/붙여넣기/삭제
+- 우클릭 메뉴: 선택 영역 우클릭 시 복사/잘라내기, 그 외 우클릭 시 붙여넣기
+- 찾기/바꾸기: 매치 하이라이트(반전), 이전/다음 탐색
 
 ### Git 정책
 
@@ -26,10 +35,10 @@ npm.cmd run tauri dev
 ### 빌드
 
 ```bash
-scripts\build.cmd
+npm run build:all
 ```
 
-빌드가 성공하면 실행파일은 `out/TxEditor.exe`로 복사됩니다.
+빌드가 성공하면 실행파일은 `out/TxEditor.exe`로 복사되며, Windows에서는 설치 파일(msi/nsis)도 `out/`에 복사됩니다.
 
 ---
 
@@ -43,6 +52,15 @@ TxEditor is a Windows-first, 100% text-based desktop editor that starts by creat
 - 100% text editing: no “shape → text rendering”; characters are written directly
 - Editor UI: edit directly in a text area (newlines/spaces preserved)
 - Save: UTF-8 text (.txt), LF/CRLF newline option, Ctrl/Cmd+S
+- Open: open text files (.txt), Ctrl/Cmd+O
+- Undo/Redo: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y
+- Persistent settings: language/newline/save options/last file path
+- Ribbon menu: quick access to tools/options
+- Drawing tools: rectangle, ortholine, arrow (direction head), freeform (#/$/%)
+- Drawing style: ASCII (+ - |) / Unicode (┌─┐, │, →, etc.)
+- Block editing: rectangular selection with copy/cut/paste/delete
+- Context menu: right-click selection for copy/cut, elsewhere for paste
+- Find/Replace: inverted match highlight with previous/next navigation
 
 ### Git Policy
 
@@ -59,10 +77,10 @@ npm.cmd run tauri dev
 ### Build
 
 ```bash
-scripts\\build.cmd
+npm run build:all
 ```
 
-After a successful build, the executable is copied to `out/TxEditor.exe`.
+After a successful build, the executable is copied to `out/TxEditor.exe`. On Windows, installer bundles (msi/nsis) are also copied to `out/`.
 
 ---
 
@@ -76,6 +94,15 @@ TxEditor は Windows 向けの 100% テキストベースのデスクトップ�
 - 100% テキスト編集: 「図形 → テキスト変換レンダリング」なしで文字を直接配置
 - 編集 UI: テキストエリアで直接編集（改行/空白を保持）
 - 保存: UTF-8 テキスト(.txt)、改行(LF/CRLF)選択、Ctrl/Cmd+S
+- 開く: テキスト(.txt) ファイルを開く、Ctrl/Cmd+O
+- Undo/Redo: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y
+- 設定の永続化: 言語/改行/保存オプション/最後のファイルパス
+- リボンメニュー: ツール/オプションを上部から選択
+- 描画ツール: 四角形、直角線、矢印(終点の方向文字)、フリーフォーム(#/$/%)
+- 描画スタイル: ASCII(+ - |) / Unicode(┌─┐, │, → など)
+- ブロック編集: 矩形選択のコピー/切り取り/貼り付け/削除
+- 右クリックメニュー: 選択範囲の右クリックでコピー/切り取り、その他は貼り付け
+- 検索/置換: マッチを反転表示、前/次へ移動
 
 ### Git 方針
 
@@ -92,10 +119,10 @@ npm.cmd run tauri dev
 ### ビルド
 
 ```bash
-scripts\\build.cmd
+npm run build:all
 ```
 
-ビルドが成功すると、実行ファイルは `out/TxEditor.exe` にコピーされます。
+ビルドが成功すると、実行ファイルは `out/TxEditor.exe` にコピーされます。Windows ではインストーラー(msi/nsis)も `out/` にコピーされます。
 
 ---
 
@@ -109,6 +136,15 @@ TxEditor 是以 Windows 為優先、100% 文字為基礎的桌面編輯器。啟
 - 100% 文字編輯：不做「圖形 → 文字」轉換渲染，直接放置字元
 - 編輯 UI：在文字區域直接編輯（保留換行/空白）
 - 儲存：UTF-8 文字(.txt)，換行(LF/CRLF)可選，Ctrl/Cmd+S
+- 開啟：開啟文字(.txt) 檔案，Ctrl/Cmd+O
+- 復原/重做：Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y
+- 設定持久化：語言/換行/儲存選項/最後檔案路徑
+- 功能區：在上方功能區快速選擇工具/選項
+- 繪圖工具：矩形、直角線、箭頭(終點方向字元)、自由繪製(#/$/%)
+- 繪圖樣式：ASCII(+ - |) / Unicode(┌─┐, │, → 等)
+- 區塊編輯：矩形選取後複製/剪下/貼上/刪除
+- 右鍵選單：選取範圍右鍵複製/剪下，其它位置右鍵貼上
+- 尋找/取代：反相顯示匹配結果，上一個/下一個導覽
 
 ### Git 政策
 
@@ -125,10 +161,10 @@ npm.cmd run tauri dev
 ### 建置
 
 ```bash
-scripts\\build.cmd
+npm run build:all
 ```
 
-建置成功後，執行檔會複製到 `out/TxEditor.exe`。
+建置成功後，執行檔會複製到 `out/TxEditor.exe`。Windows 也會將安裝包(msi/nsis)複製到 `out/`。
 
 ---
 
@@ -142,6 +178,15 @@ TxEditor 是面向 Windows 的 100% 文本桌面编辑器。启动时先创建�
 - 100% 文本编辑：不做“图形 → 文本”转换渲染，直接放置字符
 - 编辑 UI：在文本区域直接编辑（保留换行/空白）
 - 保存：UTF-8 文本(.txt)，换行(LF/CRLF)可选，Ctrl/Cmd+S
+- 打开：打开文本(.txt) 文件，Ctrl/Cmd+O
+- 撤销/重做：Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y
+- 设置持久化：语言/换行/保存选项/最后文件路径
+- 功能区：在上方功能区快速选择工具/选项
+- 绘图工具：矩形、直角线、箭头(终点方向字符)、自由绘制(#/$/%)
+- 绘图样式：ASCII(+ - |) / Unicode(┌─┐, │, → 等)
+- 区块编辑：矩形选择后复制/剪切/粘贴/删除
+- 右键菜单：选区右键复制/剪切，其他位置右键粘贴
+- 查找/替换：反相高亮匹配项，上一项/下一项导航
 
 ### Git 政策
 
@@ -158,8 +203,8 @@ npm.cmd run tauri dev
 ### 构建
 
 ```bash
-scripts\\build.cmd
+npm run build:all
 ```
 
-构建成功后，可执行文件会复制到 `out/TxEditor.exe`。
+构建成功后，可执行文件会复制到 `out/TxEditor.exe`。Windows 还会把安装包(msi/nsis)复制到 `out/`。
 

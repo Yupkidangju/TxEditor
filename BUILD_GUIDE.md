@@ -26,26 +26,17 @@ npm.cmd run tauri dev
 ## 4. 배포 빌드
 
 ```bash
-scripts\build.cmd
+npm run build:all
 ```
 
-## 4.1 자동화 빌드(권장)
+빌드가 성공하면 실행파일은 `out\TxEditor.exe` 및 `out\TxEditor-<version>-<platform>-<arch>.exe`로 복사됩니다.
 
-전체 빌드(의존성 검증 → 컴파일/테스트 → 번들링 → 무결성 검증 → 롤백/알림 포함)는 아래 스크립트로 실행합니다.
+Windows 환경에서는 설치 파일도 함께 생성되어 `out\`에 복사됩니다.
 
-```bash
-scripts\build.cmd
-```
+- MSI: `TxEditor-<version>-<platform>-<arch>-msi-*.msi`
+- NSIS: `TxEditor-<version>-<platform>-<arch>-nsis-*-setup.exe`
 
-알림(Webhook) 연동이 필요하면 환경변수를 설정합니다.
-
-```bash
-set BUILD_NOTIFY_URL=https://example.com/webhook
-scripts\build.cmd
-```
-
-산출물/로그는 `.build/` 아래에 기록됩니다.
-실행파일은 빌드가 성공하면 `out\TxEditor.exe` 및 `out\TxEditor-<version>-windows-x64.exe`로 복사됩니다.
+설치 파일을 생성하려면 환경에 따라 WiX Toolset(MSI) 또는 NSIS(NSIS)가 필요할 수 있습니다.
 ## 5. 품질 게이트
 
 ```bash
@@ -64,6 +55,7 @@ TxEditor는 텍스트 버퍼에 문자를 직접 배치하는 구조이며, Expo
 ### 7.1 외부 프로그램에서 깨져 보이는 주요 원인
 
 - 고정폭(monospaced) 폰트 미사용: 일부 편집기는 기본 글꼴이 비고정폭이라 열 간격이 흐트러질 수 있습니다.
+- 문자 폭 차이: 한글/이모지/일부 유니코드 문자는 폰트/렌더러에 따라 폭이 달라 줄 맞춤을 보장할 수 없습니다.
 - 공백 처리 방식 차이: 일부 편집기는 연속 공백을 축약하거나, 탭 폭/줄바꿈 처리가 다를 수 있습니다.
 - 개행 방식 차이: Windows 환경에서는 CRLF를 요구하는 도구가 있어, Export 시 LF/CRLF 설정이 영향을 줄 수 있습니다.
 

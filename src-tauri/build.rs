@@ -28,6 +28,17 @@ fn has_rc_in_path() -> bool {
   false
 }
 
+fn try_set_rc_mt_env(rc_dir: &Path) {
+  let rc_exe = rc_dir.join("rc.exe");
+  if rc_exe.exists() && std::env::var_os("RC").is_none() {
+    std::env::set_var("RC", rc_exe);
+  }
+  let mt_exe = rc_dir.join("mt.exe");
+  if mt_exe.exists() && std::env::var_os("MT").is_none() {
+    std::env::set_var("MT", mt_exe);
+  }
+}
+
 fn windows_sdk_bin_roots() -> Vec<PathBuf> {
   let mut roots = Vec::new();
 
@@ -90,6 +101,7 @@ fn main() {
 
   if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") && !has_rc_in_path() {
     if let Some(rc_dir) = find_windows_sdk_rc() {
+      try_set_rc_mt_env(&rc_dir);
       let current = std::env::var_os("PATH").unwrap_or_default();
       let mut paths = vec![rc_dir];
       paths.extend(std::env::split_paths(&current));

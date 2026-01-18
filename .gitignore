@@ -23,8 +23,11 @@ IMPLEMENTATION_SUMMARY.md
 LESSONS_LEARNED.md
 DESIGN_DECISIONS.md
 audit_roadmap.md
+audit_agent_report.md
 
 # Tool artifacts accidentally created by terminal output (local only)
-Traeresources*
-rc-tauri*
-tCheck*
+erseunhoAppDataLocalProgramsTraeresourcesappoutvsworkbenchcontribterminalcommonscriptssafe_rm_aliases.ps1*
+tTxEditorsrc-tauri
+Traeresourcesappoutvsworkbenchcontribterminalcommonscriptssafe_rm_aliases.ps1*
+/e
+/t
