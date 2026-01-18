@@ -59,6 +59,10 @@ function sanitizeFileName(name) {
   return String(name || '').replace(/[^a-zA-Z0-9._-]+/g, '_') || 'TxEditor'
 }
 
+function isTimeoutError(err) {
+  return Boolean(err && (err.code === 'ETIMEDOUT' || String(err.message || '').includes('ETIMEDOUT')))
+}
+
 function verifyExecutable(exePath) {
   const timeoutMs = 2500
   const run = (args) =>
@@ -69,12 +73,18 @@ function verifyExecutable(exePath) {
     })
 
   const a = run(['--version'])
-  if (a.error) fail(`실행 파일 검증 실패(--version): ${a.error.message}`)
+  if (a.error) {
+    if (isTimeoutError(a.error)) return
+    fail(`실행 파일 검증 실패(--version): ${a.error.message}`)
+  }
   if (a.signal === 'SIGTERM' || a.signal === 'SIGKILL') return
   if (typeof a.status === 'number' && a.status === 0) return
 
   const b = run([])
-  if (b.error) fail(`실행 파일 검증 실패(launch): ${b.error.message}`)
+  if (b.error) {
+    if (isTimeoutError(b.error)) return
+    fail(`실행 파일 검증 실패(launch): ${b.error.message}`)
+  }
   if (b.signal === 'SIGTERM' || b.signal === 'SIGKILL') return
   if (typeof b.status === 'number' && b.status === 0) return
 

@@ -357,7 +357,9 @@ type TextMetrics = { charWidth: number; lineHeight: number; paddingLeft: number;
 
 type Rect = { top: number; left: number; bottom: number; right: number }
 
-type BlockClipboard = { width: number; height: number; lines: string[] } | null
+type BlockClipboard = { width: number; height: number; lines: string[]; origin: Cell }
+
+type ClipboardState = { current: BlockClipboard | null; history: BlockClipboard[] }
 
 type DrawStyle = 'ascii' | 'unicode'
 
@@ -413,7 +415,7 @@ function getCharAt(lines: string[], row: number, col: number) {
   return ch === CONTINUATION_CELL ? ' ' : ch
 }
 
-function copyRectFromBuffer(base: { width: number; height: number; lines: string[] }, rect: Rect): BlockClipboard {
+function copyRectFromBuffer(base: { width: number; height: number; lines: string[] }, rect: Rect, originCell?: Cell): BlockClipboard | null {
   const { width, height } = rectSize(rect)
   if (width <= 0 || height <= 0) return null
   const out: string[] = []
@@ -422,7 +424,9 @@ function copyRectFromBuffer(base: { width: number; height: number; lines: string
     for (let c = rect.left; c <= rect.right; c += 1) s += getCharAt(base.lines, r, c)
     out.push(s)
   }
-  return { width, height, lines: out }
+  const o = originCell ?? { row: rect.top, col: rect.left }
+  const origin = { row: clampInt(o.row - rect.top, 0, height - 1), col: clampInt(o.col - rect.left, 0, width - 1) }
+  return { width, height, lines: out, origin }
 }
 
 function applyRectFill(base: { width: number; height: number; lines: string[] }, rect: Rect, fillChar: string) {
@@ -433,14 +437,15 @@ function applyRectFill(base: { width: number; height: number; lines: string[] },
   return { ...base, lines }
 }
 
-function pasteRectIntoBuffer(base: { width: number; height: number; lines: string[] }, at: Cell, clip: BlockClipboard) {
+function pasteRectIntoBuffer(base: { width: number; height: number; lines: string[] }, at: Cell, clip: BlockClipboard | null) {
   if (!clip) return base
+  const topLeft = { row: at.row - clip.origin.row, col: at.col - clip.origin.col }
   const lines = cloneLines(base.lines, base.height)
   for (let r = 0; r < clip.height; r += 1) {
     const rowCells = toCells(clip.lines[r] ?? '')
     for (let c = 0; c < clip.width; c += 1) {
-      const row = at.row + r
-      const col = at.col + c
+      const row = topLeft.row + r
+      const col = topLeft.col + c
       if (row < 0 || row >= base.height) continue
       if (col < 0 || col >= base.width) continue
       const ch = rowCells[c] ?? ' '
@@ -1277,7 +1282,7 @@ export default function App() {
   const [isDrawing, setIsDrawing] = useState(false)
   const [isSelecting, setIsSelecting] = useState(false)
   const [selectionRect, setSelectionRect] = useState<Rect | null>(null)
-  const [clipboard, setClipboard] = useState<BlockClipboard>(null)
+  const [clipboard, setClipboard] = useState<ClipboardState>({ current: null, history: [] })
   const [metrics, setMetrics] = useState<TextMetrics | null>(null)
   const metricsRef = useRef<TextMetrics | null>(null)
   const composingRef = useRef(false)
@@ -1292,6 +1297,7 @@ export default function App() {
     points: Cell[]
   } | null>(null)
   const selectGestureRef = useRef<{ start: Cell; current: Cell } | null>(null)
+  const selectionAnchorRef = useRef<{ start: Cell; end: Cell } | null>(null)
   const [isFindOpen, setIsFindOpen] = useState(false)
   const [isReplaceOpen, setIsReplaceOpen] = useState(false)
   const [findQuery, setFindQuery] = useState('')
@@ -1406,6 +1412,7 @@ export default function App() {
 
   const clearSelection = useCallback(() => {
     selectGestureRef.current = null
+    selectionAnchorRef.current = null
     setIsSelecting(false)
     setSelectionRect(null)
   }, [])
@@ -1447,6 +1454,7 @@ export default function App() {
   const cancelPointerGesture = useCallback(() => {
     if (selectGestureRef.current) {
       selectGestureRef.current = null
+      selectionAnchorRef.current = null
       setIsSelecting(false)
     }
     if (gestureRef.current) {
@@ -1459,8 +1467,14 @@ export default function App() {
 
   const copySelection = useCallback(() => {
     if (!selectionRect) return
-    const clip = copyRectFromBuffer(buffer, selectionRect)
-    setClipboard(clip)
+    const originCell = selectionAnchorRef.current?.start
+    const clip = copyRectFromBuffer(buffer, selectionRect, originCell)
+    if (!clip) return
+    setClipboard((s) => {
+      const nextHistory = s.current ? [s.current, ...s.history] : s.history
+      const history = nextHistory.slice(0, 20)
+      return { current: clip, history }
+    })
   }, [buffer, selectionRect])
 
   const deleteSelection = useCallback(() => {
@@ -1477,15 +1491,15 @@ export default function App() {
 
   const pasteClipboard = useCallback(() => {
     const at = cursor ?? { row: 0, col: 0 }
-    const next = pasteRectIntoBuffer(buffer, at, clipboard)
+    const next = pasteRectIntoBuffer(buffer, at, clipboard.current)
     commitBuffer(next)
     clearSelection()
   }, [buffer, clearSelection, clipboard, commitBuffer, cursor])
 
   const pasteClipboardAt = useCallback(
     (at: Cell) => {
-      if (!clipboard) return
-      const next = pasteRectIntoBuffer(buffer, at, clipboard)
+      if (!clipboard.current) return
+      const next = pasteRectIntoBuffer(buffer, at, clipboard.current)
       commitBuffer(next)
       setCursor(at)
       clearSelection()
@@ -1924,6 +1938,7 @@ export default function App() {
       const start = cellFromPointerEvent(e, el, metrics, { width: buffer.width, height: buffer.height })
       if (tool === 'select') {
         selectGestureRef.current = { start, current: start }
+        selectionAnchorRef.current = { start, end: start }
         setIsSelecting(true)
         setSelectionRect(normalizeRect(start, start))
         return
@@ -1966,6 +1981,7 @@ export default function App() {
         if (!metrics) return
         const cell = cellFromPointerEvent(e, el, metrics, { width: buffer.width, height: buffer.height })
         sg.current = cell
+        selectionAnchorRef.current = { start: sg.start, end: cell }
         setSelectionRect(normalizeRect(sg.start, sg.current))
         return
       }
@@ -2177,7 +2193,7 @@ export default function App() {
                   type="button"
                   className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
                   onClick={pasteClipboard}
-                  disabled={!clipboard}
+                  disabled={!clipboard.current}
                 >
                   {t('paste')}
                 </button>
@@ -2244,12 +2260,8 @@ export default function App() {
               const m = metricsRef.current
               if (!m) return
               const clicked = cellFromClientPoint(e.clientX, e.clientY, el, m, { width: buffer.width, height: buffer.height })
-              if (selectionRect && isCellInRect(selectionRect, clicked)) {
-                setContextMenu({ open: true, x: e.clientX, y: e.clientY, at: clicked, inSelection: true })
-                return
-              }
-              setContextMenu({ open: false, x: 0, y: 0, at: null, inSelection: false })
-              pasteClipboardAt(clicked)
+              const inSelection = Boolean(selectionRect && isCellInRect(selectionRect, clicked))
+              setContextMenu({ open: true, x: e.clientX, y: e.clientY, at: clicked, inSelection })
             }}
             onMouseDown={(e) => e.preventDefault()}
           >
@@ -2409,25 +2421,49 @@ export default function App() {
         >
           <button
             type="button"
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!contextMenu.inSelection || !selectionRect}
             onClick={() => {
               setContextMenu({ open: false, x: 0, y: 0, at: null, inSelection: false })
               copySelection()
             }}
           >
-            <span>{t('copy')}</span>
+            <span className="flex items-center gap-2">
+              <span className="w-4 text-center text-slate-500">⎘</span>
+              <span>{t('copy')}</span>
+            </span>
             <span className="text-xs text-slate-400">Ctrl+C</span>
           </button>
           <button
             type="button"
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!contextMenu.inSelection || !selectionRect}
             onClick={() => {
               setContextMenu({ open: false, x: 0, y: 0, at: null, inSelection: false })
               cutSelection()
             }}
           >
-            <span>{t('cut')}</span>
+            <span className="flex items-center gap-2">
+              <span className="w-4 text-center text-slate-500">✂</span>
+              <span>{t('cut')}</span>
+            </span>
             <span className="text-xs text-slate-400">Ctrl+X</span>
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!clipboard.current || !contextMenu.at}
+            onClick={() => {
+              const at = contextMenu.at
+              if (!at) return
+              pasteClipboardAt(at)
+            }}
+          >
+            <span className="flex items-center gap-2">
+              <span className="w-4 text-center text-slate-500">⎀</span>
+              <span>{t('paste')}</span>
+            </span>
+            <span className="text-xs text-slate-400">Ctrl+V</span>
           </button>
         </div>
       ) : null}
