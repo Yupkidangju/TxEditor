@@ -1,5 +1,12 @@
 # TxEditor (v0.2)
 
+> [!IMPORTANT]
+> **한국어:** TxEditor의 텍스트 그림(ASCII 아트)은 고정폭(모노스페이스) 글꼴과 공백 보존이 전제입니다. Windows 메모장/일부 텍스트 입력창에서는 표시가 깨질 수 있으니 Notepad++ 같은 고정폭 표시가 가능한 에디터 사용을 권장합니다.  
+> **English:** TxEditor’s text drawings (ASCII art) assume a monospaced font and preserved whitespace. In Windows Notepad and some text input fields, the layout may break, so we recommend using an editor that supports monospaced display, such as Notepad++.  
+> **日本語:** TxEditor のテキスト図（ASCII アート）は等幅（モノスペース）フォントと空白の保持を前提としています。Windows のメモ帳や一部のテキスト入力欄では表示が崩れる場合があるため、Notepad++ など等幅表示が可能なエディタの使用を推奨します。  
+> **中文（繁體）:** TxEditor 的文字圖（ASCII art）以等寬（monospace）字型與空白保留為前提。在 Windows 記事本或部分文字輸入欄位中，版面可能會跑掉，因此建議使用支援等寬顯示的編輯器，例如 Notepad++。  
+> **中文（简体）:** TxEditor 的文本图（ASCII art）以等宽（monospace）字体和空白保留为前提。在 Windows 记事本或部分文本输入框中可能会出现排版错乱，建议使用支持等宽显示的编辑器，例如 Notepad++。
+
 ## 한국어
 
 TxEditor는 Windows 환경에서 “빈 텍스트 버퍼(예: 80x24, 120x80, 160x100)”를 만들고, 그 버퍼에 직접 문자를 배치해 그림을 그리는 100% 텍스트 기반 데스크톱 에디터입니다. (Tauri v2 + Rust + React)
