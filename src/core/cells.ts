@@ -4,6 +4,21 @@ const segmenter =
     : null
 
 export const CONTINUATION_CELL = '\u0001'
+export const TRANSPARENT_CELL = '\u0000'
+
+export type TextBuffer = {
+  width: number
+  height: number
+  lines: string[]
+}
+
+export type Layer = {
+  id: string
+  name: string
+  visible: boolean
+  locked: boolean
+  buffer: TextBuffer
+}
 
 function isFullWidthCodePoint(codePoint: number) {
   if (codePoint < 0x1100) return false
@@ -105,6 +120,69 @@ export function sliceCells(text: string, width: number) {
     col += 1
   }
   return out.join('')
+}
+
+export function cloneLines(lines: string[], height: number) {
+  const out: string[] = []
+  for (let i = 0; i < height; i += 1) out.push(lines[i] ?? '')
+  return out
+}
+
+export function setCharInLines(lines: string[], row: number, col: number, ch: string, width: number) {
+  if (row < 0 || row >= lines.length) return
+  if (col < 0 || col >= width) return
+  const src = lines[row] ?? ''
+  const cells = toCells(src)
+  if (ch !== CONTINUATION_CELL && cellDisplayWidth(ch) === 2) {
+    if (col + 1 >= width) ch = ' '
+  }
+  if (cells.length <= col) {
+    for (let i = cells.length; i < col; i += 1) cells.push(' ')
+    cells.push(ch)
+  } else {
+    if (ch !== CONTINUATION_CELL) {
+      if (cells[col] === CONTINUATION_CELL) {
+        let start = col
+        while (start > 0 && (cells[start] ?? '') === CONTINUATION_CELL) start -= 1
+        cells[start] = ' '
+        for (let i = start + 1; i < cells.length; i += 1) {
+          if ((cells[i] ?? '') !== CONTINUATION_CELL) break
+          cells[i] = ' '
+        }
+      } else {
+        for (let i = col + 1; i < cells.length; i += 1) {
+          if ((cells[i] ?? '') !== CONTINUATION_CELL) break
+          cells[i] = ' '
+        }
+      }
+    }
+    cells[col] = ch
+  }
+  if (ch !== CONTINUATION_CELL && cellDisplayWidth(ch) === 2 && col + 1 < width) {
+    if (cells.length <= col + 1) {
+      for (let i = cells.length; i <= col + 1; i += 1) cells.push(' ')
+    }
+    if ((cells[col + 1] ?? '') === CONTINUATION_CELL) {
+      let start = col + 1
+      while (start > 0 && (cells[start] ?? '') === CONTINUATION_CELL) start -= 1
+      cells[start] = ' '
+      for (let i = start + 1; i < cells.length; i += 1) {
+        if ((cells[i] ?? '') !== CONTINUATION_CELL) break
+        cells[i] = ' '
+      }
+    } else {
+      for (let i = col + 2; i < cells.length; i += 1) {
+        if ((cells[i] ?? '') !== CONTINUATION_CELL) break
+        cells[i] = ' '
+      }
+    }
+    cells[col + 1] = CONTINUATION_CELL
+    for (let i = col + 2; i < cells.length; i += 1) {
+      if ((cells[i] ?? '') !== CONTINUATION_CELL) break
+      cells[i] = ' '
+    }
+  }
+  lines[row] = cells.slice(0, width).join('')
 }
 
 export function padCells(text: string, width: number) {

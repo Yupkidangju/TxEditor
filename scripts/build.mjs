@@ -141,7 +141,7 @@ runStep('실행 파일 생성(Tauri)', npmCmd, ['run', 'tauri', '--', 'build', '
 const bundled = runStepAllowFailure(
   '설치 파일 생성(Tauri 번들)',
   npmCmd,
-  ['run', 'tauri', '--', 'build', '--bundles', 'msi', 'nsis', '--ci'],
+  ['run', 'tauri', '--', 'build', '--bundles', 'msi', 'nsis', 'deb', 'appimage', 'dmg', '--ci'],
   { cwd: root, env: { ...process.env, PAGER: 'cat' } }
 )
 
@@ -170,7 +170,10 @@ console.log(`- ${outVersioned} (${fileSize(outVersioned)} bytes)`)
 const bundleRoot = path.join(root, 'src-tauri', 'target', 'release', 'bundle')
 const bundleCandidates = [
   { kind: 'msi', dir: path.join(bundleRoot, 'msi'), exts: ['.msi'] },
-  { kind: 'nsis', dir: path.join(bundleRoot, 'nsis'), exts: ['.exe'] }
+  { kind: 'nsis', dir: path.join(bundleRoot, 'nsis'), exts: ['.exe'] },
+  { kind: 'dmg', dir: path.join(bundleRoot, 'dmg'), exts: ['.dmg'] },
+  { kind: 'deb', dir: path.join(bundleRoot, 'deb'), exts: ['.deb'] },
+  { kind: 'appimage', dir: path.join(bundleRoot, 'appimage'), exts: ['.appimage'] }
 ]
 
 function listFilesByExt(dirPath, exts) {

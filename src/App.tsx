@@ -2,8 +2,9 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { invoke } from '@tauri-apps/api/core'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import { writeText as writeClipboardText } from '@tauri-apps/plugin-clipboard-manager'
-import { bufferToText, useEditorStore } from './store/editorStore'
-import { CONTINUATION_CELL, cellDisplayWidth, cellLength, getCellAt, padCells, toCells, toDisplayText, toInternalText } from './core/cells'
+import { bufferToText, selectActiveBuffer, useEditorStore } from './store/editorStore'
+import { CONTINUATION_CELL, cellDisplayWidth, cellLength, cloneLines, getCellAt, padCells, setCharInLines, toCells, toDisplayText, toInternalText, type Layer } from './core/cells'
+import { compositeBuffers } from './core/composition'
 import { insertBlankFigure } from './core/figureInsert'
 import { dirname, ensureDefaultExtension, isValidSavePath, joinPath, normalizeForClipboard, normalizeForSave, stripUtf8Bom } from './core/textIo'
 
@@ -99,6 +100,12 @@ type TextKey =
   | 'toastThemeApplied'
   | 'toastLanguageApplied'
   | 'invalidSavePath'
+  | 'layers'
+  | 'addLayer'
+  | 'removeLayer'
+  | 'renameLayer'
+  | 'visible'
+  | 'locked'
 
 const LANGUAGE_LABELS: Record<Language, string> = {
   ko: '한국어',
@@ -184,7 +191,13 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     unpin: '핀 해제',
     toastThemeApplied: '테마가 적용되었습니다.',
     toastLanguageApplied: '언어가 적용되었습니다.',
-    invalidSavePath: '저장 경로 또는 파일명이 올바르지 않습니다.'
+    invalidSavePath: '저장 경로 또는 파일명이 올바르지 않습니다.',
+    layers: '레이어',
+    addLayer: '레이어 추가',
+    removeLayer: '레이어 삭제',
+    renameLayer: '이름 변경',
+    visible: '보이기',
+    locked: '잠금'
   },
   en: {
     menuFile: 'File',
@@ -261,7 +274,13 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     unpin: 'Unpin',
     toastThemeApplied: 'Theme applied.',
     toastLanguageApplied: 'Language applied.',
-    invalidSavePath: 'The save path or file name is invalid.'
+    invalidSavePath: 'The save path or file name is invalid.',
+    layers: 'Layers',
+    addLayer: 'Add Layer',
+    removeLayer: 'Remove Layer',
+    renameLayer: 'Rename',
+    visible: 'Visible',
+    locked: 'Locked'
   },
   ja: {
     menuFile: 'ファイル',
@@ -338,7 +357,13 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     unpin: 'ピン留め解除',
     toastThemeApplied: 'テーマを適用しました。',
     toastLanguageApplied: '言語を適用しました。',
-    invalidSavePath: '保存先のパスまたはファイル名が正しくありません。'
+    invalidSavePath: '保存先のパスまたはファイル名が正しくありません。',
+    layers: 'レイヤー',
+    addLayer: 'レイヤー追加',
+    removeLayer: 'レイヤー削除',
+    renameLayer: '名前変更',
+    visible: '表示',
+    locked: 'ロック'
   },
   'zh-Hant': {
     menuFile: '檔案',
@@ -415,7 +440,13 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     unpin: '取消釘選',
     toastThemeApplied: '已套用主題。',
     toastLanguageApplied: '已套用語言。',
-    invalidSavePath: '儲存路徑或檔名不正確。'
+    invalidSavePath: '儲存路徑或檔名不正確。',
+    layers: '圖層',
+    addLayer: '新增圖層',
+    removeLayer: '刪除圖層',
+    renameLayer: '重新命名',
+    visible: '顯示',
+    locked: '鎖定'
   },
   'zh-Hans': {
     menuFile: '文件',
@@ -492,7 +523,13 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     unpin: '取消固定',
     toastThemeApplied: '主题已应用。',
     toastLanguageApplied: '语言已应用。',
-    invalidSavePath: '保存路径或文件名无效。'
+    invalidSavePath: '保存路径或文件名无效。',
+    layers: '图层',
+    addLayer: '新建图层',
+    removeLayer: '删除图层',
+    renameLayer: '重命名',
+    visible: '显示',
+    locked: '锁定'
   }
 }
 
@@ -739,68 +776,6 @@ function cellFromClientPoint(clientX: number, clientY: number, el: HTMLElement, 
   return { row, col }
 }
 
-function setCharInLines(lines: string[], row: number, col: number, ch: string, width: number) {
-  if (row < 0 || row >= lines.length) return
-  if (col < 0 || col >= width) return
-  const src = lines[row] ?? ''
-  const cells = toCells(src)
-  if (ch !== CONTINUATION_CELL && cellDisplayWidth(ch) === 2) {
-    if (col + 1 >= width) ch = ' '
-  }
-  if (cells.length <= col) {
-    for (let i = cells.length; i < col; i += 1) cells.push(' ')
-    cells.push(ch)
-  } else {
-    if (ch !== CONTINUATION_CELL) {
-      if (cells[col] === CONTINUATION_CELL) {
-        let start = col
-        while (start > 0 && (cells[start] ?? '') === CONTINUATION_CELL) start -= 1
-        cells[start] = ' '
-        for (let i = start + 1; i < cells.length; i += 1) {
-          if ((cells[i] ?? '') !== CONTINUATION_CELL) break
-          cells[i] = ' '
-        }
-      } else {
-        for (let i = col + 1; i < cells.length; i += 1) {
-          if ((cells[i] ?? '') !== CONTINUATION_CELL) break
-          cells[i] = ' '
-        }
-      }
-    }
-    cells[col] = ch
-  }
-  if (ch !== CONTINUATION_CELL && cellDisplayWidth(ch) === 2 && col + 1 < width) {
-    if (cells.length <= col + 1) {
-      for (let i = cells.length; i <= col + 1; i += 1) cells.push(' ')
-    }
-    if ((cells[col + 1] ?? '') === CONTINUATION_CELL) {
-      let start = col + 1
-      while (start > 0 && (cells[start] ?? '') === CONTINUATION_CELL) start -= 1
-      cells[start] = ' '
-      for (let i = start + 1; i < cells.length; i += 1) {
-        if ((cells[i] ?? '') !== CONTINUATION_CELL) break
-        cells[i] = ' '
-      }
-    } else {
-      for (let i = col + 2; i < cells.length; i += 1) {
-        if ((cells[i] ?? '') !== CONTINUATION_CELL) break
-        cells[i] = ' '
-      }
-    }
-    cells[col + 1] = CONTINUATION_CELL
-    for (let i = col + 2; i < cells.length; i += 1) {
-      if ((cells[i] ?? '') !== CONTINUATION_CELL) break
-      cells[i] = ' '
-    }
-  }
-  lines[row] = cells.slice(0, width).join('')
-}
-
-function cloneLines(lines: string[], height: number) {
-  const out: string[] = []
-  for (let i = 0; i < height; i += 1) out.push(lines[i] ?? '')
-  return out
-}
 
 function drawHorizontal(lines: string[], row: number, c1: number, c2: number, width: number, ch: string) {
   const from = Math.max(0, Math.min(c1, c2))
@@ -994,6 +969,13 @@ type IconName =
   | 'chevronRight'
   | 'chevronLeft'
   | 'check'
+  | 'layers'
+  | 'add'
+  | 'close'
+  | 'visible'
+  | 'hidden'
+  | 'lock'
+  | 'unlock'
 
 function Icon({ name }: { name: IconName }) {
   const common = {
@@ -1048,6 +1030,51 @@ function Icon({ name }: { name: IconName }) {
     return (
       <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
         <path {...common} d="M20 6L9 17l-5-5" />
+      </svg>
+    )
+  if (name === 'layers')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path {...common} d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+      </svg>
+    )
+  if (name === 'add')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path {...common} d="M12 5v14M5 12h14" />
+      </svg>
+    )
+  if (name === 'close')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path {...common} d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    )
+  if (name === 'visible')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path {...common} d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle {...common} cx="12" cy="12" r="3" />
+      </svg>
+    )
+  if (name === 'hidden')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path {...common} d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24M1 1l22 22" />
+      </svg>
+    )
+  if (name === 'lock')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <rect {...common} x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path {...common} d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+    )
+  if (name === 'unlock')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <rect {...common} x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path {...common} d="M7 11V7a5 5 0 0 1 9.9-1" />
       </svg>
     )
   if (name === 'text')
@@ -1738,7 +1765,7 @@ function StatusBar({
   filePath: string | null
 }) {
   const t = useCallback((key: TextKey) => TEXT[language][key], [language])
-  const buffer = useEditorStore((s) => s.buffer)
+  const buffer = useEditorStore(selectActiveBuffer)
   const cursor = useEditorStore((s) => s.cursor)
   const row = cursor ? cursor.row + 1 : null
   const col = cursor ? cursor.col + 1 : null
@@ -1996,9 +2023,155 @@ function diffText(oldText: string, newText: string) {
   return { start, deleted, inserted }
 }
 
+function LayersModal({
+  onClose,
+  layers,
+  activeLayerId,
+  addLayer,
+  removeLayer,
+  selectLayer,
+  toggleLayerVisibility,
+  toggleLayerLock,
+  setLayerName,
+  text
+}: {
+  onClose: () => void
+  layers: Layer[]
+  activeLayerId: string
+  addLayer: () => void
+  removeLayer: (id: string) => void
+  selectLayer: (id: string) => void
+  toggleLayerVisibility: (id: string) => void
+  toggleLayerLock: (id: string) => void
+  setLayerName: (id: string, name: string) => void
+  text: Record<TextKey, string>
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+
+  const startEditing = (l: Layer) => {
+    setEditingId(l.id)
+    setEditName(l.name)
+  }
+
+  const saveName = () => {
+    if (editingId) {
+      setLayerName(editingId, editName)
+      setEditingId(null)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div 
+        className="w-80 rounded p-4 shadow-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] text-[var(--ui-text)]" 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-bold">{text.layers}</h2>
+          <button onClick={onClose} className="rounded p-1 hover:bg-[var(--ui-surface-2)]">
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="mb-4 max-h-60 overflow-y-auto">
+          {layers.map((l) => {
+            const isActive = l.id === activeLayerId
+            return (
+              <div
+                key={l.id}
+                className={`mb-1 flex items-center rounded p-2 border ${
+                  isActive
+                    ? 'bg-[var(--ui-primary)] text-[var(--ui-primary-contrast)] border-[var(--ui-primary)]'
+                    : 'hover:bg-[var(--ui-surface-2)] border-transparent text-[var(--ui-text)]'
+                }`}
+                onClick={() => selectLayer(l.id)}
+              >
+                <button
+                  className={`mr-2 rounded p-1 ${
+                    isActive 
+                      ? 'text-current opacity-90 hover:opacity-100' 
+                      : l.visible ? 'text-[var(--ui-text-muted)] hover:text-[var(--ui-text)]' : 'text-[var(--ui-text-dim)]'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleLayerVisibility(l.id)
+                  }}
+                  title={text.visible}
+                >
+                  <Icon name={l.visible ? 'visible' : 'hidden'} />
+                </button>
+                
+                {editingId === l.id ? (
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onBlur={saveName}
+                    onKeyDown={(e) => e.key === 'Enter' && saveName()}
+                    className="flex-1 rounded border border-[var(--ui-border)] bg-[var(--ui-bg)] px-1 text-[var(--ui-text)]"
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span className="flex-1 truncate cursor-pointer font-medium" onDoubleClick={() => startEditing(l)}>
+                    {l.name}
+                  </span>
+                )}
+
+                <button
+                  className={`ml-2 rounded p-1 ${
+                    isActive
+                      ? 'text-current opacity-90 hover:opacity-100'
+                      : l.locked ? 'text-[var(--ui-danger)]' : 'text-[var(--ui-text-dim)] hover:text-[var(--ui-text)]'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleLayerLock(l.id)
+                  }}
+                  title={text.locked}
+                >
+                  <Icon name={l.locked ? 'lock' : 'unlock'} />
+                </button>
+
+                <button
+                  className={`ml-2 ${isActive ? 'text-current opacity-90 hover:opacity-100' : 'text-[var(--ui-danger)] hover:opacity-80'}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (layers.length > 1) removeLayer(l.id)
+                  }}
+                  disabled={layers.length <= 1}
+                  title={text.removeLayer}
+                >
+                  <Icon name="close" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        <button
+          className="flex w-full items-center justify-center gap-2 rounded bg-[var(--ui-primary)] py-2 text-[var(--ui-primary-contrast)] hover:opacity-90"
+          onClick={addLayer}
+        >
+          <Icon name="add" />
+          {text.addLayer}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
-  const buffer = useEditorStore((s) => s.buffer)
+  const buffer = useEditorStore(selectActiveBuffer)
+  const layers = useEditorStore((s) => s.layers)
+  const activeLayerId = useEditorStore((s) => s.activeLayerId)
   const newBuffer = useEditorStore((s) => s.newBuffer)
+  const addLayer = useEditorStore((s) => s.addLayer)
+  const removeLayer = useEditorStore((s) => s.removeLayer)
+  const selectLayer = useEditorStore((s) => s.selectLayer)
+  const toggleLayerVisibility = useEditorStore((s) => s.toggleLayerVisibility)
+  const toggleLayerLock = useEditorStore((s) => s.toggleLayerLock)
+  const setLayerName = useEditorStore((s) => s.setLayerName)
+  const [showLayersModal, setShowLayersModal] = useState(false)
   const setBufferFromText = useEditorStore((s) => s.setBufferFromText)
   const loadBufferFromTextAutoSize = useEditorStore((s) => s.loadBufferFromTextAutoSize)
   const commitBuffer = useEditorStore((s) => s.commitBuffer)
@@ -2109,7 +2282,13 @@ export default function App() {
   })
   const contextMenuRef = useRef<HTMLDivElement | null>(null)
 
-  const renderText = useMemo(() => bufferToText(draftBuffer ?? buffer, { padRight: true }), [buffer, draftBuffer])
+  const renderText = useMemo(() => {
+    const targetLayers = draftBuffer
+      ? layers.map((l) => (l.id === activeLayerId ? { ...l, buffer: draftBuffer } : l))
+      : layers
+    const composite = compositeBuffers(targetLayers, buffer.width, buffer.height)
+    return bufferToText(composite, { padRight: true })
+  }, [activeLayerId, buffer.height, buffer.width, draftBuffer, layers])
   const t = useCallback((key: TextKey) => TEXT[language][key], [language])
   const clearToast = useCallback(() => setToastMessage(null), [])
   const onThemeSettingChange = useCallback(
@@ -2396,7 +2575,8 @@ export default function App() {
   const applyInsertFigure = useCallback(() => {
     const viewport = viewportRef.current
     if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
-    const { buffer: currentBuffer, cursor: currentCursor } = useEditorStore.getState()
+    const { cursor: currentCursor, getBuffer } = useEditorStore.getState()
+    const currentBuffer = getBuffer()
     const at = currentCursor ?? { row: 0, col: 0 }
     const { buffer: next, cursorAfter } = insertBlankFigure(
       { width: currentBuffer.width, height: currentBuffer.height, lines: currentBuffer.lines },
@@ -2466,7 +2646,8 @@ export default function App() {
     (opts: { text: string; at?: Cell }) => {
       const viewport = viewportRef.current
       if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
-      const { buffer: currentBuffer, cursor: currentCursor } = useEditorStore.getState()
+      const { cursor: currentCursor, getBuffer } = useEditorStore.getState()
+    const currentBuffer = getBuffer()
       const at = snapCursorToCellStartInBuffer(currentBuffer, opts.at ?? currentCursor ?? { row: 0, col: 0 })
 
       const { next, cursor: nextCursor } = overwriteTextIntoBuffer(currentBuffer, at, opts.text)
@@ -2624,7 +2805,8 @@ export default function App() {
   }, [applyOverwriteAt, computeMatches, cursor, findPrev, findQuery, replaceQuery])
 
   const replaceAll = useCallback(() => {
-    const { buffer: currentBuffer } = useEditorStore.getState()
+    const { getBuffer } = useEditorStore.getState()
+    const currentBuffer = getBuffer()
     const matches = computeMatches(findQuery)
     if (matches.length === 0) return
     const findLen = cellLength(findQuery)
@@ -2833,7 +3015,8 @@ export default function App() {
   const applyBackspace = useCallback(() => {
     const viewport = viewportRef.current
     if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
-    const { buffer: currentBuffer, cursor: currentCursor } = useEditorStore.getState()
+    const { cursor: currentCursor, getBuffer } = useEditorStore.getState()
+    const currentBuffer = getBuffer()
     if (!currentCursor) return
     const at: Cell = snapCursorToCellStartInBuffer(currentBuffer, currentCursor)
     let nextAt = at
@@ -2849,7 +3032,8 @@ export default function App() {
   const applyDelete = useCallback(() => {
     const viewport = viewportRef.current
     if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
-    const { buffer: currentBuffer, cursor: currentCursor } = useEditorStore.getState()
+    const { cursor: currentCursor, getBuffer } = useEditorStore.getState()
+    const currentBuffer = getBuffer()
     if (!currentCursor) return
     const at: Cell = snapCursorToCellStartInBuffer(currentBuffer, currentCursor)
     const lines = cloneLines(currentBuffer.lines, currentBuffer.height)
@@ -2862,7 +3046,8 @@ export default function App() {
   const applyEnter = useCallback(() => {
     const viewport = viewportRef.current
     if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
-    const { buffer: currentBuffer, cursor: currentCursor } = useEditorStore.getState()
+    const { cursor: currentCursor, getBuffer } = useEditorStore.getState()
+    const currentBuffer = getBuffer()
     const at = currentCursor ? snapCursorToCellStartInBuffer(currentBuffer, currentCursor) : { row: 0, col: 0 }
     const anchor = enterAnchorRef.current ? snapCursorToCellStartInBuffer(currentBuffer, enterAnchorRef.current) : at
     const bounds = findEnclosingBoxBounds(currentBuffer.lines, currentBuffer.width, currentBuffer.height, anchor)
@@ -3256,6 +3441,12 @@ export default function App() {
             <div className="flex items-center gap-1">
               <IconButton label={t('undo')} icon="undo" onClick={undo} disabled={isDrawing || isSelecting} />
               <IconButton label={t('redo')} icon="redo" onClick={redo} disabled={isDrawing || isSelecting} />
+              <div className="flex flex-col items-center">
+                <IconButton label={t('layers')} icon="layers" onClick={() => setShowLayersModal(true)} />
+                <span className="mt-0.5 max-w-[60px] truncate text-[10px] font-medium text-[var(--ui-text)]">
+                  {layers.find((l) => l.id === activeLayerId)?.name}
+                </span>
+              </div>
               <IconButton label={t('find')} icon="search" onClick={openFind} />
               <IconButton label={t('replace')} icon="replace" onClick={openReplace} />
             </div>
@@ -3799,6 +3990,21 @@ export default function App() {
           </div>
         </div>
       ) : null}
+
+      {showLayersModal && (
+        <LayersModal
+          onClose={() => setShowLayersModal(false)}
+          layers={layers}
+          activeLayerId={activeLayerId}
+          addLayer={addLayer}
+          removeLayer={removeLayer}
+          selectLayer={selectLayer}
+          toggleLayerVisibility={toggleLayerVisibility}
+          toggleLayerLock={toggleLayerLock}
+          setLayerName={setLayerName}
+          text={TEXT[language]}
+        />
+      )}
     </div>
   )
 }

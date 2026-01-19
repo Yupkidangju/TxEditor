@@ -42,10 +42,16 @@ Windows 환경에서는 설치 파일도 함께 생성되어 `out\`에 복사됩
 - MSI: `TxEditor-<version>-<platform>-<arch>-msi-*.msi`
 - NSIS: `TxEditor-<version>-<platform>-<arch>-nsis-*-setup.exe`
 
+macOS 및 Linux 환경에서도 동일하게 `npm run build:exe`를 실행하면 해당 OS에 맞는 설치 파일이 `out/` 폴더로 복사됩니다.
+
+- macOS: `TxEditor-<version>*.dmg`
+- Linux: `TxEditor-<version>*.deb`, `TxEditor-<version>*.appimage`
+
 설치 파일을 생성하려면 환경에 따라 WiX Toolset(MSI) 또는 NSIS(NSIS)가 필요할 수 있습니다.
 
-참고로 현재 빌드 스크립트는 Windows에서 아래 산출물을 `out\`으로 복사합니다.
+참고로 현재 빌드 스크립트는 실행되는 OS를 감지하여 적절한 산출물을 `out\`으로 복사합니다.
 
+Windows 예시:
 - `TxEditor.exe`
 - `TxEditor-<version>-win32-x64.exe`
 - `TxEditor-<version>-win32-x64-msi-*.msi`
