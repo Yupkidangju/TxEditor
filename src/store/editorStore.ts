@@ -48,8 +48,9 @@ export function bufferToText(buffer: TextBuffer, opts?: { padRight?: boolean }) 
   const padRight = opts?.padRight ?? false
   const out: string[] = []
   for (let i = 0; i < buffer.height; i += 1) {
-    const line = toDisplayText(buffer.lines[i] ?? '')
-    out.push(padRight ? padCells(line, buffer.width) : line)
+    const internalLine = buffer.lines[i] ?? ''
+    const padded = padRight ? padCells(internalLine, buffer.width) : internalLine
+    out.push(toDisplayText(padded))
   }
   return out.join('\n')
 }

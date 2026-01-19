@@ -1,8 +1,11 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open, save } from '@tauri-apps/plugin-dialog'
+import { writeText as writeClipboardText } from '@tauri-apps/plugin-clipboard-manager'
 import { bufferToText, useEditorStore } from './store/editorStore'
-import { CONTINUATION_CELL, cellLength, getCellAt, toCells, toDisplayText } from './core/cells'
+import { CONTINUATION_CELL, cellDisplayWidth, cellLength, getCellAt, padCells, toCells, toDisplayText, toInternalText } from './core/cells'
+import { insertBlankFigure } from './core/figureInsert'
+import { dirname, ensureDefaultExtension, isValidSavePath, joinPath, normalizeForClipboard, normalizeForSave, stripUtf8Bom } from './core/textIo'
 
 type BufferTemplate = '80x24' | '120x80' | '160x100'
 
@@ -16,14 +19,31 @@ type ExportNewline = 'lf' | 'crlf'
 
 type Language = 'ko' | 'en' | 'ja' | 'zh-Hant' | 'zh-Hans'
 
+type ThemeId = 'light' | 'dark' | 'monokai' | 'kimble-dark' | 'dracula' | 'nord' | 'solarized-light' | 'solarized-dark'
+
+type ThemeSetting = ThemeId | 'system'
+
 type TextKey =
   | 'menuFile'
   | 'menuEdit'
   | 'menuHelp'
   | 'settings'
   | 'language'
+  | 'theme'
+  | 'themeSystem'
+  | 'themeLight'
+  | 'themeDark'
+  | 'themeMonokai'
+  | 'themeKimbleDark'
+  | 'themeDracula'
+  | 'themeNord'
+  | 'themeSolarizedLight'
+  | 'themeSolarizedDark'
   | 'open'
   | 'loadError'
+  | 'saveError'
+  | 'overwriteConfirm'
+  | 'clipboardError'
   | 'find'
   | 'replace'
   | 'findNext'
@@ -49,8 +69,11 @@ type TextKey =
   | 'cut'
   | 'paste'
   | 'delete'
+  | 'insert'
+  | 'insertFigure'
   | 'new'
   | 'save'
+  | 'saveAs'
   | 'undo'
   | 'redo'
   | 'newBuffer'
@@ -67,6 +90,15 @@ type TextKey =
   | 'ln'
   | 'col'
   | 'buffer'
+  | 'recentFiles'
+  | 'clearRecent'
+  | 'pinnedFiles'
+  | 'manageRecent'
+  | 'pin'
+  | 'unpin'
+  | 'toastThemeApplied'
+  | 'toastLanguageApplied'
+  | 'invalidSavePath'
 
 const LANGUAGE_LABELS: Record<Language, string> = {
   ko: '한국어',
@@ -83,8 +115,21 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     menuHelp: '도움말',
     settings: '설정',
     language: '언어',
+    theme: '테마',
+    themeSystem: '시스템',
+    themeLight: '라이트',
+    themeDark: '다크',
+    themeMonokai: '모노카이',
+    themeKimbleDark: '킴블 다크',
+    themeDracula: '드라큘라',
+    themeNord: '노르드',
+    themeSolarizedLight: '솔라라이즈드 라이트',
+    themeSolarizedDark: '솔라라이즈드 다크',
     open: '열기',
     loadError: '파일을 불러오지 못했습니다.',
+    saveError: '파일을 저장하지 못했습니다.',
+    overwriteConfirm: '기존 파일을 덮어쓰시겠습니까?',
+    clipboardError: '클립보드에 복사하지 못했습니다.',
     find: '찾기',
     replace: '바꾸기',
     findNext: '다음 찾기',
@@ -110,8 +155,11 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     cut: '잘라내기',
     paste: '붙여넣기',
     delete: '삭제',
+    insert: '삽입',
+    insertFigure: '그림 삽입',
     new: '새로 만들기',
     save: '저장',
+    saveAs: '다른 이름으로 저장',
     undo: '되돌리기',
     redo: '다시 실행',
     newBuffer: '새 버퍼',
@@ -127,7 +175,16 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     ctrlCmdS: 'Ctrl/Cmd+S',
     ln: '행',
     col: '열',
-    buffer: '버퍼'
+    buffer: '버퍼',
+    recentFiles: '최근 파일',
+    clearRecent: '최근 파일 비우기',
+    pinnedFiles: '고정된 파일',
+    manageRecent: '최근 파일 관리',
+    pin: '핀',
+    unpin: '핀 해제',
+    toastThemeApplied: '테마가 적용되었습니다.',
+    toastLanguageApplied: '언어가 적용되었습니다.',
+    invalidSavePath: '저장 경로 또는 파일명이 올바르지 않습니다.'
   },
   en: {
     menuFile: 'File',
@@ -135,8 +192,21 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     menuHelp: 'Help',
     settings: 'Settings',
     language: 'Language',
+    theme: 'Theme',
+    themeSystem: 'System',
+    themeLight: 'Light',
+    themeDark: 'Dark',
+    themeMonokai: 'Monokai',
+    themeKimbleDark: 'Kimble Dark',
+    themeDracula: 'Dracula',
+    themeNord: 'Nord',
+    themeSolarizedLight: 'Solarized Light',
+    themeSolarizedDark: 'Solarized Dark',
     open: 'Open',
     loadError: 'Failed to load file.',
+    saveError: 'Failed to save file.',
+    overwriteConfirm: 'Overwrite the existing file?',
+    clipboardError: 'Failed to copy to clipboard.',
     find: 'Find',
     replace: 'Replace',
     findNext: 'Find next',
@@ -162,8 +232,11 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     cut: 'Cut',
     paste: 'Paste',
     delete: 'Delete',
+    insert: 'Insert',
+    insertFigure: 'Insert figure',
     new: 'New',
     save: 'Save',
+    saveAs: 'Save As',
     undo: 'Undo',
     redo: 'Redo',
     newBuffer: 'New Buffer',
@@ -179,7 +252,16 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     ctrlCmdS: 'Ctrl/Cmd+S',
     ln: 'Ln',
     col: 'Col',
-    buffer: 'Buffer'
+    buffer: 'Buffer',
+    recentFiles: 'Recent files',
+    clearRecent: 'Clear recent files',
+    pinnedFiles: 'Pinned files',
+    manageRecent: 'Manage recent files',
+    pin: 'Pin',
+    unpin: 'Unpin',
+    toastThemeApplied: 'Theme applied.',
+    toastLanguageApplied: 'Language applied.',
+    invalidSavePath: 'The save path or file name is invalid.'
   },
   ja: {
     menuFile: 'ファイル',
@@ -187,8 +269,21 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     menuHelp: 'ヘルプ',
     settings: '設定',
     language: '言語',
+    theme: 'テーマ',
+    themeSystem: 'システム',
+    themeLight: 'ライト',
+    themeDark: 'ダーク',
+    themeMonokai: 'Monokai',
+    themeKimbleDark: 'Kimble Dark',
+    themeDracula: 'Dracula',
+    themeNord: 'Nord',
+    themeSolarizedLight: 'Solarized Light',
+    themeSolarizedDark: 'Solarized Dark',
     open: '開く',
     loadError: 'ファイルを読み込めませんでした。',
+    saveError: 'ファイルを保存できませんでした。',
+    overwriteConfirm: '既存のファイルを上書きしますか？',
+    clipboardError: 'クリップボードにコピーできませんでした。',
     find: '検索',
     replace: '置換',
     findNext: '次を検索',
@@ -214,8 +309,11 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     cut: '切り取り',
     paste: '貼り付け',
     delete: '削除',
+    insert: '挿入',
+    insertFigure: '図を挿入',
     new: '新規',
     save: '保存',
+    saveAs: '名前を付けて保存',
     undo: '元に戻す',
     redo: 'やり直し',
     newBuffer: '新規バッファ',
@@ -231,7 +329,16 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     ctrlCmdS: 'Ctrl/Cmd+S',
     ln: '行',
     col: '列',
-    buffer: 'バッファ'
+    buffer: 'バッファ',
+    recentFiles: '最近のファイル',
+    clearRecent: '最近のファイルをクリア',
+    pinnedFiles: 'ピン留め',
+    manageRecent: '最近のファイルを管理',
+    pin: 'ピン留め',
+    unpin: 'ピン留め解除',
+    toastThemeApplied: 'テーマを適用しました。',
+    toastLanguageApplied: '言語を適用しました。',
+    invalidSavePath: '保存先のパスまたはファイル名が正しくありません。'
   },
   'zh-Hant': {
     menuFile: '檔案',
@@ -239,8 +346,21 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     menuHelp: '說明',
     settings: '設定',
     language: '語言',
+    theme: '主題',
+    themeSystem: '系統',
+    themeLight: '淺色',
+    themeDark: '深色',
+    themeMonokai: 'Monokai',
+    themeKimbleDark: 'Kimble Dark',
+    themeDracula: 'Dracula',
+    themeNord: 'Nord',
+    themeSolarizedLight: 'Solarized Light',
+    themeSolarizedDark: 'Solarized Dark',
     open: '開啟',
     loadError: '無法載入檔案。',
+    saveError: '無法儲存檔案。',
+    overwriteConfirm: '要覆寫既有檔案嗎？',
+    clipboardError: '無法複製到剪貼簿。',
     find: '尋找',
     replace: '取代',
     findNext: '尋找下一個',
@@ -266,8 +386,11 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     cut: '剪下',
     paste: '貼上',
     delete: '刪除',
+    insert: '插入',
+    insertFigure: '插入圖片',
     new: '新增',
     save: '儲存',
+    saveAs: '另存新檔',
     undo: '復原',
     redo: '重做',
     newBuffer: '新增緩衝區',
@@ -283,7 +406,16 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     ctrlCmdS: 'Ctrl/Cmd+S',
     ln: '行',
     col: '列',
-    buffer: '緩衝區'
+    buffer: '緩衝區',
+    recentFiles: '最近檔案',
+    clearRecent: '清除最近檔案',
+    pinnedFiles: '已釘選檔案',
+    manageRecent: '管理最近檔案',
+    pin: '釘選',
+    unpin: '取消釘選',
+    toastThemeApplied: '已套用主題。',
+    toastLanguageApplied: '已套用語言。',
+    invalidSavePath: '儲存路徑或檔名不正確。'
   },
   'zh-Hans': {
     menuFile: '文件',
@@ -291,8 +423,21 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     menuHelp: '帮助',
     settings: '设置',
     language: '语言',
+    theme: '主题',
+    themeSystem: '系统',
+    themeLight: '浅色',
+    themeDark: '深色',
+    themeMonokai: 'Monokai',
+    themeKimbleDark: 'Kimble Dark',
+    themeDracula: 'Dracula',
+    themeNord: 'Nord',
+    themeSolarizedLight: 'Solarized Light',
+    themeSolarizedDark: 'Solarized Dark',
     open: '打开',
     loadError: '无法加载文件。',
+    saveError: '无法保存文件。',
+    overwriteConfirm: '要覆盖现有文件吗？',
+    clipboardError: '无法复制到剪贴板。',
     find: '查找',
     replace: '替换',
     findNext: '查找下一个',
@@ -318,8 +463,11 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     cut: '剪切',
     paste: '粘贴',
     delete: '删除',
+    insert: '插入',
+    insertFigure: '插入图片',
     new: '新建',
     save: '保存',
+    saveAs: '另存为',
     undo: '撤销',
     redo: '重做',
     newBuffer: '新建缓冲区',
@@ -335,13 +483,31 @@ const TEXT: Record<Language, Record<TextKey, string>> = {
     ctrlCmdS: 'Ctrl/Cmd+S',
     ln: '行',
     col: '列',
-    buffer: '缓冲区'
+    buffer: '缓冲区',
+    recentFiles: '最近文件',
+    clearRecent: '清空最近文件',
+    pinnedFiles: '已固定文件',
+    manageRecent: '管理最近文件',
+    pin: '固定',
+    unpin: '取消固定',
+    toastThemeApplied: '主题已应用。',
+    toastLanguageApplied: '语言已应用。',
+    invalidSavePath: '保存路径或文件名无效。'
   }
 }
 
 function normalizeNewlines(text: string, mode: ExportNewline) {
   const lf = text.replace(/\r\n/g, '\n')
   return mode === 'crlf' ? lf.replace(/\n/g, '\r\n') : lf
+}
+
+function dialogPathToString(picked: unknown): string | null {
+  if (typeof picked === 'string') return picked
+  if (picked && typeof picked === 'object') {
+    const v = (picked as { path?: unknown }).path
+    if (typeof v === 'string') return v
+  }
+  return null
 }
 
 function clampInt(v: number, min: number, max: number) {
@@ -415,13 +581,18 @@ function getCharAt(lines: string[], row: number, col: number) {
   return ch === CONTINUATION_CELL ? ' ' : ch
 }
 
+function getRawCellAt(lines: string[], row: number, col: number) {
+  const line = lines[row] ?? ''
+  return getCellAt(line, col)
+}
+
 function copyRectFromBuffer(base: { width: number; height: number; lines: string[] }, rect: Rect, originCell?: Cell): BlockClipboard | null {
   const { width, height } = rectSize(rect)
   if (width <= 0 || height <= 0) return null
   const out: string[] = []
   for (let r = rect.top; r <= rect.bottom; r += 1) {
     let s = ''
-    for (let c = rect.left; c <= rect.right; c += 1) s += getCharAt(base.lines, r, c)
+    for (let c = rect.left; c <= rect.right; c += 1) s += getRawCellAt(base.lines, r, c)
     out.push(s)
   }
   const o = originCell ?? { row: rect.top, col: rect.left }
@@ -439,7 +610,7 @@ function applyRectFill(base: { width: number; height: number; lines: string[] },
 
 function pasteRectIntoBuffer(base: { width: number; height: number; lines: string[] }, at: Cell, clip: BlockClipboard | null) {
   if (!clip) return base
-  const topLeft = { row: at.row - clip.origin.row, col: at.col - clip.origin.col }
+  const topLeft = at
   const lines = cloneLines(base.lines, base.height)
   for (let r = 0; r < clip.height; r += 1) {
     const rowCells = toCells(clip.lines[r] ?? '')
@@ -460,9 +631,14 @@ function parsePx(px: string) {
   return Number.isFinite(v) ? v : 0
 }
 
-function chooseEditorFontFamily(textarea: HTMLTextAreaElement) {
+function snapToDevicePx(v: number) {
+  const dpr = typeof window !== 'undefined' && typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1
+  return Math.round(v * dpr) / dpr
+}
+
+function chooseEditorFontFamily(el: HTMLElement) {
   if (navigator.userAgent.includes('jsdom')) return null
-  const cs = window.getComputedStyle(textarea)
+  const cs = window.getComputedStyle(el)
   const canvas = document.createElement('canvas')
   let ctx: CanvasRenderingContext2D | null = null
   try {
@@ -472,7 +648,7 @@ function chooseEditorFontFamily(textarea: HTMLTextAreaElement) {
   }
   if (!ctx) return null
   const fontPrefix = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}`
-  const samples = ['M', '0', 'A', '─', '│', '┌', '┐', '└', '┘', '가', '한', '中', '日', '🙂']
+  const samples = [' ', 'M', '0', 'A', '─', '│', '┌', '┐', '└', '┘', '가', '한', '中', '日', '🙂']
   const candidates = [
     '"D2Coding", monospace',
     '"Cascadia Mono", monospace',
@@ -521,24 +697,27 @@ function measureEditorElement(el: HTMLElement): TextMetrics | null {
   span.style.letterSpacing = cs.letterSpacing
   span.style.lineHeight = cs.lineHeight
   document.body.appendChild(span)
-  let baseCharWidth = 0
-  let maxCharWidth = 0
-  let lineHeight = 0
-  for (const s of ['M', '─', '│', '가', '한', '中', '🙂']) {
-    span.textContent = s
+  const measureRun = (glyph: string, count: number) => {
+    span.textContent = glyph.repeat(count)
     const r = span.getBoundingClientRect()
-    if (s === 'M') baseCharWidth = r.width
-    if (r.width > maxCharWidth) maxCharWidth = r.width
-    if (r.height > lineHeight) lineHeight = r.height
+    const w = r.width / count
+    return Number.isFinite(w) && w > 0 ? w : 0
   }
+  const runCount = 64
+  const widths = [measureRun(' ', runCount), measureRun('0', runCount), measureRun('M', runCount), measureRun('─', runCount), measureRun('│', runCount)]
+    .filter((v) => v > 0)
+    .sort((a, b) => a - b)
+  const charWidth = widths.length > 0 ? widths[Math.floor(widths.length / 2)] : 0
+  span.textContent = Array.from({ length: 6 }, () => 'M').join('\n')
+  const lhRect = span.getBoundingClientRect()
+  const lineHeight = lhRect.height / 6
   document.body.removeChild(span)
-  const charWidth = baseCharWidth > 0 ? baseCharWidth : maxCharWidth
   if (!(charWidth > 0) || !(lineHeight > 0)) return null
   return {
-    charWidth,
-    lineHeight,
-    paddingLeft: parsePx(cs.paddingLeft),
-    paddingTop: parsePx(cs.paddingTop)
+    charWidth: snapToDevicePx(charWidth),
+    lineHeight: snapToDevicePx(lineHeight),
+    paddingLeft: snapToDevicePx(parsePx(cs.paddingLeft)),
+    paddingTop: snapToDevicePx(parsePx(cs.paddingTop))
   }
 }
 
@@ -565,6 +744,9 @@ function setCharInLines(lines: string[], row: number, col: number, ch: string, w
   if (col < 0 || col >= width) return
   const src = lines[row] ?? ''
   const cells = toCells(src)
+  if (ch !== CONTINUATION_CELL && cellDisplayWidth(ch) === 2) {
+    if (col + 1 >= width) ch = ' '
+  }
   if (cells.length <= col) {
     for (let i = cells.length; i < col; i += 1) cells.push(' ')
     cells.push(ch)
@@ -586,6 +768,30 @@ function setCharInLines(lines: string[], row: number, col: number, ch: string, w
       }
     }
     cells[col] = ch
+  }
+  if (ch !== CONTINUATION_CELL && cellDisplayWidth(ch) === 2 && col + 1 < width) {
+    if (cells.length <= col + 1) {
+      for (let i = cells.length; i <= col + 1; i += 1) cells.push(' ')
+    }
+    if ((cells[col + 1] ?? '') === CONTINUATION_CELL) {
+      let start = col + 1
+      while (start > 0 && (cells[start] ?? '') === CONTINUATION_CELL) start -= 1
+      cells[start] = ' '
+      for (let i = start + 1; i < cells.length; i += 1) {
+        if ((cells[i] ?? '') !== CONTINUATION_CELL) break
+        cells[i] = ' '
+      }
+    } else {
+      for (let i = col + 2; i < cells.length; i += 1) {
+        if ((cells[i] ?? '') !== CONTINUATION_CELL) break
+        cells[i] = ' '
+      }
+    }
+    cells[col + 1] = CONTINUATION_CELL
+    for (let i = col + 2; i < cells.length; i += 1) {
+      if ((cells[i] ?? '') !== CONTINUATION_CELL) break
+      cells[i] = ' '
+    }
   }
   lines[row] = cells.slice(0, width).join('')
 }
@@ -705,10 +911,13 @@ function drawFree(base: { width: number; height: number; lines: string[] }, poin
 
 const STORAGE_KEYS = {
   language: 'txeditor.language',
+  theme: 'txeditor.theme',
   exportNewline: 'txeditor.exportNewline',
-  padRightOnSave: 'txeditor.padRightOnSave',
+  padRightOnSave: 'txeditor.padRightOnSave.v2',
   drawStyle: 'txeditor.drawStyle',
-  filePath: 'txeditor.filePath'
+  filePath: 'txeditor.filePath',
+  recentFiles: 'txeditor.recentFiles',
+  pinnedFiles: 'txeditor.pinnedFiles'
 } as const
 
 function readStorage(key: string) {
@@ -727,6 +936,14 @@ function writeStorage(key: string, value: string) {
   }
 }
 
+function removeStorage(key: string) {
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    return
+  }
+}
+
 function safeJsonParse<T>(text: string | null): T | null {
   if (!text) return null
   try {
@@ -734,6 +951,24 @@ function safeJsonParse<T>(text: string | null): T | null {
   } catch {
     return null
   }
+}
+
+function normalizePathList(list: string[], limit: number) {
+  const out: string[] = []
+  for (const v of list) {
+    if (typeof v !== 'string') continue
+    if (!v.trim()) continue
+    if (out.includes(v)) continue
+    out.push(v)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+function readPathList(key: string, limit: number) {
+  const raw = safeJsonParse<unknown>(readStorage(key))
+  if (!Array.isArray(raw)) return []
+  return normalizePathList(raw.filter((v) => typeof v === 'string') as string[], limit)
 }
 
 type MenuAction = { label: string; shortcut?: string; disabled?: boolean; onSelect: () => void }
@@ -756,6 +991,9 @@ type IconName =
   | 'trash'
   | 'search'
   | 'replace'
+  | 'chevronRight'
+  | 'chevronLeft'
+  | 'check'
 
 function Icon({ name }: { name: IconName }) {
   const common = {
@@ -794,12 +1032,29 @@ function Icon({ name }: { name: IconName }) {
         <path {...common} d="M4 20a8 8 0 0 1 8-8h7" />
       </svg>
     )
+  if (name === 'chevronRight')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path {...common} d="M9 6l6 6-6 6" />
+      </svg>
+    )
+  if (name === 'chevronLeft')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path {...common} d="M15 6l-6 6 6 6" />
+      </svg>
+    )
+  if (name === 'check')
+    return (
+      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+        <path {...common} d="M20 6L9 17l-5-5" />
+      </svg>
+    )
   if (name === 'text')
     return (
       <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-        <path {...common} d="M4 6h16" />
-        <path {...common} d="M8 6v14" />
-        <path {...common} d="M16 6v14" />
+        <path {...common} d="M7 20L12 4l5 16" />
+        <path {...common} d="M9.5 13h5" />
       </svg>
     )
   if (name === 'select')
@@ -912,15 +1167,15 @@ function IconButton({
   return (
     <button
       type="button"
-      className={`group relative flex h-8 w-8 items-center justify-center rounded border text-slate-700 ${
-        active ? 'border-slate-400 bg-slate-100' : 'border-slate-300 bg-white hover:bg-slate-50'
+      className={`group relative flex h-8 w-8 items-center justify-center rounded border border-[var(--ui-border)] text-[var(--ui-text)] ${
+        active ? 'bg-[var(--ui-surface-2)]' : 'bg-[var(--ui-surface)] hover:bg-[var(--ui-surface-2)]'
       } disabled:opacity-40`}
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
     >
       <Icon name={icon} />
-      <div className="pointer-events-none absolute left-1/2 top-full z-20 hidden -translate-x-1/2 whitespace-nowrap rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 shadow-sm group-hover:block group-focus-visible:block">
+      <div className="pointer-events-none absolute left-1/2 top-full z-20 hidden -translate-x-1/2 whitespace-nowrap rounded border border-[var(--ui-border)] bg-[var(--ui-surface)] px-2 py-1 text-[11px] text-[var(--ui-text)] shadow-[var(--ui-shadow-sm)] group-hover:block group-focus-visible:block">
         {label}
       </div>
     </button>
@@ -933,7 +1188,7 @@ function DropdownMenu({
   items,
   align
 }: {
-  trigger: React.ReactNode
+  trigger: ReactNode
   label: string
   items: MenuAction[]
   align?: 'left' | 'right'
@@ -997,7 +1252,7 @@ function DropdownMenu({
     <div className="relative" ref={menuRef}>
       <button
         type="button"
-        className="rounded px-2 py-1 text-sm text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+        className="rounded px-2 py-1 text-sm text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:opacity-40 disabled:hover:bg-transparent"
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={items.length === 0}
@@ -1013,7 +1268,7 @@ function DropdownMenu({
         <div
           role="menu"
           aria-label={label}
-          className={`absolute top-full z-30 mt-1 min-w-56 rounded border border-slate-200 bg-white p-1 shadow-lg ${
+          className={`absolute top-full z-30 mt-1 min-w-56 rounded border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1 shadow-[var(--ui-shadow-md)] ${
             align === 'right' ? 'right-0' : 'left-0'
           }`}
           onKeyDown={onMenuKeyDown}
@@ -1026,7 +1281,7 @@ function DropdownMenu({
               }}
               type="button"
               role="menuitem"
-              className="flex w-full items-center justify-between gap-6 rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              className="flex w-full items-center justify-between gap-6 rounded px-2 py-1.5 text-left text-sm text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] disabled:opacity-40"
               disabled={it.disabled}
               onClick={() => {
                 setOpen(false)
@@ -1034,7 +1289,7 @@ function DropdownMenu({
               }}
             >
               <span>{it.label}</span>
-              <span className="text-xs text-slate-400">{it.shortcut ?? ''}</span>
+              <span className="text-xs text-[var(--ui-text-dim)]">{it.shortcut ?? ''}</span>
             </button>
           ))}
         </div>
@@ -1043,44 +1298,399 @@ function DropdownMenu({
   )
 }
 
+type SettingsPage = 'root' | 'theme' | 'language'
+
+function Toast({ message, onDone }: { message: string | null; onDone: () => void }) {
+  useEffect(() => {
+    if (!message) return
+    const id = window.setTimeout(() => onDone(), 1600)
+    return () => window.clearTimeout(id)
+  }, [message, onDone])
+
+  if (!message) return null
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+      <div className="pointer-events-auto rounded border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-sm text-[var(--ui-text)] shadow-[var(--ui-shadow-md)]">
+        {message}
+      </div>
+    </div>
+  )
+}
+
+function SettingsModal({
+  open,
+  language,
+  themeSetting,
+  onThemeChange,
+  onLanguageChange,
+  onClose
+}: {
+  open: boolean
+  language: Language
+  themeSetting: ThemeSetting
+  onThemeChange: (theme: ThemeSetting) => void
+  onLanguageChange: (lang: Language) => void
+  onClose: () => void
+}) {
+  const t = useCallback((key: TextKey) => TEXT[language][key], [language])
+  const [page, setPage] = useState<SettingsPage>('root')
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setPage('root')
+    queueMicrotask(() => closeBtnRef.current?.focus())
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose, open])
+
+  if (!open) return null
+
+  const themeLabel = (v: ThemeSetting) => {
+    if (v === 'system') return t('themeSystem')
+    if (v === 'light') return t('themeLight')
+    if (v === 'dark') return t('themeDark')
+    if (v === 'monokai') return t('themeMonokai')
+    if (v === 'kimble-dark') return t('themeKimbleDark')
+    if (v === 'dracula') return t('themeDracula')
+    if (v === 'nord') return t('themeNord')
+    if (v === 'solarized-light') return t('themeSolarizedLight')
+    return t('themeSolarizedDark')
+  }
+
+  const card = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('settings')}
+      className="w-full max-w-md rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-md)]"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between border-b border-[var(--ui-border)] px-4 py-3">
+        <div className="text-base font-semibold text-[var(--ui-text)]">{t('settings')}</div>
+        <button
+          ref={closeBtnRef}
+          type="button"
+          className="rounded px-3 py-2 text-sm text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+          onClick={onClose}
+        >
+          {t('close')}
+        </button>
+      </div>
+
+      {page === 'root' ? (
+        <div className="p-3">
+          <div className="space-y-2">
+            <button
+              type="button"
+              className="flex h-12 w-full items-center justify-between rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 text-left text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+              onClick={() => setPage('theme')}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="font-medium">{t('theme')}</div>
+                <div className="truncate text-sm text-[var(--ui-text-dim)]">{themeLabel(themeSetting)}</div>
+              </div>
+              <Icon name="chevronRight" />
+            </button>
+
+            <button
+              type="button"
+              className="flex h-12 w-full items-center justify-between rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 text-left text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+              onClick={() => setPage('language')}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="font-medium">{t('language')}</div>
+                <div className="truncate text-sm text-[var(--ui-text-dim)]">{LANGUAGE_LABELS[language]}</div>
+              </div>
+              <Icon name="chevronRight" />
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {page === 'theme' ? (
+        <div className="p-3">
+          <div className="flex items-center gap-2 px-1 pb-2">
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+              onClick={() => setPage('root')}
+              aria-label={t('close')}
+            >
+              <Icon name="chevronLeft" />
+            </button>
+            <div className="text-sm font-semibold text-[var(--ui-text)]">{t('theme')}</div>
+          </div>
+          <div className="space-y-2">
+            {(
+              [
+                { id: 'system', label: t('themeSystem') },
+                { id: 'light', label: t('themeLight') },
+                { id: 'dark', label: t('themeDark') },
+                { id: 'monokai', label: t('themeMonokai') },
+                { id: 'kimble-dark', label: t('themeKimbleDark') },
+                { id: 'dracula', label: t('themeDracula') },
+                { id: 'nord', label: t('themeNord') },
+                { id: 'solarized-light', label: t('themeSolarizedLight') },
+                { id: 'solarized-dark', label: t('themeSolarizedDark') }
+              ] as Array<{ id: ThemeSetting; label: string }>
+            ).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className="flex h-12 w-full items-center justify-between rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 text-left text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+                onClick={() => onThemeChange(opt.id)}
+              >
+                <div className="text-sm font-medium">{opt.label}</div>
+                {themeSetting === opt.id ? <Icon name="check" /> : <span className="h-4 w-4" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {page === 'language' ? (
+        <div className="p-3">
+          <div className="flex items-center gap-2 px-1 pb-2">
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+              onClick={() => setPage('root')}
+              aria-label={t('close')}
+            >
+              <Icon name="chevronLeft" />
+            </button>
+            <div className="text-sm font-semibold text-[var(--ui-text)]">{t('language')}</div>
+          </div>
+          <div className="space-y-2">
+            {(Object.keys(LANGUAGE_LABELS) as Language[]).map((lang) => (
+              <button
+                key={lang}
+                type="button"
+                className="flex h-12 w-full items-center justify-between rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 text-left text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+                onClick={() => onLanguageChange(lang)}
+              >
+                <div className="text-sm font-medium">{LANGUAGE_LABELS[lang]}</div>
+                {language === lang ? <Icon name="check" /> : <span className="h-4 w-4" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-40" onPointerDown={onClose}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="relative flex h-full w-full items-end justify-center p-4 sm:items-center">{card}</div>
+    </div>
+  )
+}
+
+function ManageRecentModal({
+  open,
+  language,
+  pinnedFiles,
+  recentFiles,
+  onOpenPath,
+  onTogglePin,
+  onRemovePath,
+  onClearRecent,
+  onClose
+}: {
+  open: boolean
+  language: Language
+  pinnedFiles: string[]
+  recentFiles: string[]
+  onOpenPath: (path: string) => void
+  onTogglePin: (path: string) => void
+  onRemovePath: (path: string) => void
+  onClearRecent: () => void
+  onClose: () => void
+}) {
+  const t = useCallback((key: TextKey) => TEXT[language][key], [language])
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    queueMicrotask(() => closeBtnRef.current?.focus())
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose, open])
+
+  if (!open) return null
+
+  const row = (path: string) => {
+    const isPinned = pinnedFiles.includes(path)
+    return (
+      <div key={path} className="flex items-center gap-2 rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2">
+        <button
+          type="button"
+          className="min-w-0 flex-1 truncate text-left text-sm text-[var(--ui-text)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+          onClick={() => {
+            onClose()
+            onOpenPath(path)
+          }}
+          title={path}
+        >
+          {basename(path)}
+        </button>
+        <button
+          type="button"
+          className="rounded px-2 py-1 text-xs text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+          onClick={() => onTogglePin(path)}
+        >
+          {isPinned ? t('unpin') : t('pin')}
+        </button>
+        <button
+          type="button"
+          className="rounded px-2 py-1 text-xs text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+          onClick={() => onRemovePath(path)}
+        >
+          {t('delete')}
+        </button>
+      </div>
+    )
+  }
+
+  const card = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('manageRecent')}
+      className="w-full max-w-lg rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-md)]"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between border-b border-[var(--ui-border)] px-4 py-3">
+        <div className="text-base font-semibold text-[var(--ui-text)]">{t('manageRecent')}</div>
+        <button
+          ref={closeBtnRef}
+          type="button"
+          className="rounded px-3 py-2 text-sm text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+          onClick={onClose}
+        >
+          {t('close')}
+        </button>
+      </div>
+
+      <div className="space-y-4 p-4">
+        {pinnedFiles.length > 0 ? (
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-[var(--ui-text-dim)]">{t('pinnedFiles')}</div>
+            {pinnedFiles.slice(0, 10).map((p) => row(p))}
+          </div>
+        ) : null}
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-[var(--ui-text-dim)]">{t('recentFiles')}</div>
+            <button
+              type="button"
+              className="rounded px-2 py-1 text-xs text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)] disabled:opacity-40"
+              disabled={recentFiles.length === 0}
+              onClick={onClearRecent}
+            >
+              {t('clearRecent')}
+            </button>
+          </div>
+          {recentFiles.length > 0 ? recentFiles.slice(0, 10).map((p) => row(p)) : <div className="text-sm text-[var(--ui-text-dim)]">-</div>}
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-40" onPointerDown={onClose}>
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="relative flex h-full w-full items-end justify-center p-4 sm:items-center">{card}</div>
+    </div>
+  )
+}
+
 function MenuBar({
   language,
-  onLanguageChange,
   onOpen,
   onNew,
   onSave,
+  onSaveAs,
+  pinnedFiles,
+  recentFiles,
+  onOpenRecent,
+  onClearRecent,
+  onManageRecent,
   onUndo,
   onRedo,
   onCopy,
   onCut,
   onPaste,
+  onInsertFigure,
   onFind,
-  onReplace
+  onReplace,
+  onOpenSettings
 }: {
   language: Language
-  onLanguageChange: (lang: Language) => void
   onOpen: () => void
   onNew: () => void
   onSave: () => void
+  onSaveAs: () => void
+  pinnedFiles: string[]
+  recentFiles: string[]
+  onOpenRecent: (path: string) => void
+  onClearRecent: () => void
+  onManageRecent: () => void
   onUndo: () => void
   onRedo: () => void
   onCopy: () => void
   onCut: () => void
   onPaste: () => void
+  onInsertFigure: () => void
   onFind: () => void
   onReplace: () => void
+  onOpenSettings: () => void
 }) {
   const t = useCallback((key: TextKey) => TEXT[language][key], [language])
   return (
-    <div className="flex h-12 items-center gap-2 border-b border-slate-200 bg-white px-3">
-      <div className="mr-2 font-semibold text-slate-800">TxEditor</div>
+    <div className="flex h-12 items-center gap-2 border-b border-[var(--ui-border)] bg-[var(--ui-surface)] px-3">
+      <div className="mr-2 font-semibold text-[var(--ui-text)]">TxEditor</div>
       <DropdownMenu
         label={t('menuFile')}
         trigger={<span>{t('menuFile')}</span>}
         items={[
           { label: t('new'), shortcut: 'Ctrl+N', onSelect: onNew },
           { label: t('open'), shortcut: 'Ctrl+O', onSelect: onOpen },
-          { label: t('save'), shortcut: 'Ctrl+S', onSelect: onSave }
+          { label: t('save'), shortcut: 'Ctrl+S', onSelect: onSave },
+          { label: t('saveAs'), shortcut: 'Ctrl+Shift+S', onSelect: onSaveAs },
+          ...(pinnedFiles.length > 0 ? [{ label: t('pinnedFiles'), disabled: true, onSelect: () => {} }] : []),
+          ...pinnedFiles.slice(0, 10).map((p, idx) => ({
+            label: `${idx + 1}. ${basename(p)}`,
+            onSelect: () => onOpenRecent(p)
+          })),
+          ...(recentFiles.length > 0 ? [{ label: t('recentFiles'), disabled: true, onSelect: () => {} }] : []),
+          ...recentFiles.slice(0, 10).map((p, idx) => ({
+            label: `${idx + 1}. ${basename(p)}`,
+            onSelect: () => onOpenRecent(p)
+          })),
+          { label: t('manageRecent'), onSelect: onManageRecent },
+          ...(recentFiles.length > 0 ? [{ label: t('clearRecent'), onSelect: onClearRecent }] : [])
         ]}
       />
       <DropdownMenu
@@ -1092,30 +1702,21 @@ function MenuBar({
           { label: t('copy'), shortcut: 'Ctrl+C', onSelect: onCopy },
           { label: t('cut'), shortcut: 'Ctrl+X', onSelect: onCut },
           { label: t('paste'), shortcut: 'Ctrl+V', onSelect: onPaste },
+          { label: t('insertFigure'), shortcut: 'Ctrl+Shift+I', onSelect: onInsertFigure },
           { label: t('find'), shortcut: 'Ctrl+F', onSelect: onFind },
           { label: t('replace'), shortcut: 'Ctrl+H', onSelect: onReplace }
         ]}
       />
       <DropdownMenu label={t('menuHelp')} trigger={<span>{t('menuHelp')}</span>} items={[]} />
       <div className="ml-auto flex items-center gap-1">
-        <DropdownMenu
-          align="right"
-          label={t('settings')}
-          trigger={
-            <span className="inline-flex items-center gap-2">
-              <Icon name="gear" />
-              <span className="sr-only">{t('settings')}</span>
-            </span>
-          }
-          items={[
-            { label: LANGUAGE_LABELS.ko, disabled: language === 'ko', onSelect: () => onLanguageChange('ko') },
-            { label: LANGUAGE_LABELS.en, disabled: language === 'en', onSelect: () => onLanguageChange('en') },
-            { label: LANGUAGE_LABELS.ja, disabled: language === 'ja', onSelect: () => onLanguageChange('ja') },
-            { label: LANGUAGE_LABELS['zh-Hant'], disabled: language === 'zh-Hant', onSelect: () => onLanguageChange('zh-Hant') },
-            { label: LANGUAGE_LABELS['zh-Hans'], disabled: language === 'zh-Hans', onSelect: () => onLanguageChange('zh-Hans') }
-          ]}
-        />
-        <div className="hidden" />
+        <button
+          type="button"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface)] text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ui-focus)]"
+          onClick={onOpenSettings}
+          aria-label={t('settings')}
+        >
+          <Icon name="gear" />
+        </button>
       </div>
     </div>
   )
@@ -1142,7 +1743,7 @@ function StatusBar({
   const row = cursor ? cursor.row + 1 : null
   const col = cursor ? cursor.col + 1 : null
   return (
-    <div className="flex h-8 items-center justify-between border-t border-slate-200 bg-white px-3 text-xs text-slate-700">
+    <div className="flex h-8 items-center justify-between border-t border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 text-xs text-[var(--ui-text-muted)]">
       <div>
         {t('ln')}: {row ?? '-'}, {t('col')}: {col ?? '-'}
       </div>
@@ -1163,10 +1764,9 @@ function StatusBar({
   )
 }
 
-function snapColToCellStart(line: string, col: number) {
-  const cells = toCells(line)
-  let c = clampInt(col, 0, Math.max(0, cells.length - 1))
-  while (c > 0 && (cells[c] ?? '') === CONTINUATION_CELL) c -= 1
+function snapColToCellStart(line: string, col: number, width: number) {
+  let c = clampInt(col, 0, Math.max(0, width - 1))
+  while (c > 0 && getCellAt(line, c) === CONTINUATION_CELL) c -= 1
   return c
 }
 
@@ -1174,7 +1774,7 @@ function snapCursorToCellStartInBuffer(buffer: { width: number; height: number; 
   const row = clampInt(pos.row, 0, buffer.height - 1)
   const col = clampInt(pos.col, 0, buffer.width - 1)
   const line = buffer.lines[row] ?? ''
-  return { row, col: snapColToCellStart(line, col) }
+  return { row, col: snapColToCellStart(line, col, buffer.width) }
 }
 
 function clearContinuationRight(lines: string[], row: number, col: number, width: number) {
@@ -1187,10 +1787,105 @@ function clearContinuationRight(lines: string[], row: number, col: number, width
 
 function deleteCellAt(lines: string[], row: number, col: number, width: number) {
   const line = lines[row] ?? ''
-  const startCol = snapColToCellStart(line, col)
+  const startCol = snapColToCellStart(line, col, width)
   setCharInLines(lines, row, startCol, ' ', width)
   clearContinuationRight(lines, row, startCol, width)
   return startCol
+}
+
+type BoxBounds = {
+  left: number
+  right: number
+  top: number
+  bottom: number
+  leftInner: number
+  rightInner: number
+  topInner: number
+  bottomInner: number
+}
+
+function findEnclosingBoxBounds(lines: string[], width: number, height: number, at: Cell): BoxBounds | null {
+  const row = clampInt(at.row, 0, height - 1)
+  const col = clampInt(at.col, 0, width - 1)
+
+  const isWall = (ch: string) => ch === '|' || ch === '│' || ch === '+' || ch === '┌' || ch === '┐' || ch === '└' || ch === '┘'
+  const isH = (ch: string) => ch === '-' || ch === '─'
+  const isTopLeft = (ch: string) => ch === '+' || ch === '┌'
+  const isTopRight = (ch: string) => ch === '+' || ch === '┐'
+  const isBottomLeft = (ch: string) => ch === '+' || ch === '└'
+  const isBottomRight = (ch: string) => ch === '+' || ch === '┘'
+
+  const scanWall = (dir: -1 | 1) => {
+    let c = col
+    while (c >= 0 && c < width) {
+      const ch = getCharAt(lines, row, c)
+      if (isWall(ch)) return c
+      c += dir
+    }
+    return null
+  }
+
+  const leftWall = scanWall(-1)
+  const rightWall = scanWall(1)
+  if (leftWall == null || rightWall == null) return null
+  if (rightWall - leftWall < 2) return null
+
+  const isTopBorderRow = (r: number) => {
+    const l = getCharAt(lines, r, leftWall)
+    const rr = getCharAt(lines, r, rightWall)
+    if (!isTopLeft(l) || !isTopRight(rr)) return false
+    for (let c = leftWall + 1; c <= rightWall - 1; c += 1) {
+      const ch = getCharAt(lines, r, c)
+      if (!isH(ch)) return false
+    }
+    return true
+  }
+
+  const isBottomBorderRow = (r: number) => {
+    const l = getCharAt(lines, r, leftWall)
+    const rr = getCharAt(lines, r, rightWall)
+    if (!isBottomLeft(l) || !isBottomRight(rr)) return false
+    for (let c = leftWall + 1; c <= rightWall - 1; c += 1) {
+      const ch = getCharAt(lines, r, c)
+      if (!isH(ch)) return false
+    }
+    return true
+  }
+
+  let top: number | null = null
+  for (let r = row; r >= 0; r -= 1) {
+    if (isTopBorderRow(r)) {
+      top = r
+      break
+    }
+  }
+
+  let bottom: number | null = null
+  for (let r = row; r < height; r += 1) {
+    if (isBottomBorderRow(r)) {
+      bottom = r
+      break
+    }
+  }
+
+  if (top == null || bottom == null) return null
+
+  const bounds: BoxBounds = {
+    left: leftWall,
+    right: rightWall,
+    top,
+    bottom,
+    leftInner: leftWall + 1,
+    rightInner: rightWall - 1,
+    topInner: top + 1,
+    bottomInner: bottom - 1
+  }
+
+  if (bounds.leftInner > bounds.rightInner) return null
+  if (bounds.topInner > bounds.bottomInner) return null
+  if (row < bounds.topInner || row > bounds.bottomInner) return null
+  if (col < bounds.leftInner || col > bounds.rightInner) return null
+  return bounds
 }
 
 function overwriteTextIntoBuffer(
@@ -1201,26 +1896,87 @@ function overwriteTextIntoBuffer(
   const lines = cloneLines(base.lines, base.height)
   let row = clampInt(at.row, 0, base.height - 1)
   let col = clampInt(at.col, 0, base.width - 1)
-  col = snapColToCellStart(lines[row] ?? '', col)
+  col = snapColToCellStart(lines[row] ?? '', col, base.width)
+  const bounds = findEnclosingBoxBounds(lines, base.width, base.height, { row, col })
+  const wrapCol = bounds ? bounds.leftInner : 0
   for (const ch of toCells(text.replace(/\r\n/g, '\n'))) {
     if (ch === '\r') continue
     if (ch === '\n') {
       row += 1
-      col = 0
       if (row >= base.height) break
+      if (bounds) {
+        if (row > bounds.bottomInner) break
+        col = clampInt(col, bounds.leftInner, bounds.rightInner)
+      } else {
+        col = clampInt(col, 0, base.width - 1)
+      }
       continue
     }
-    col = snapColToCellStart(lines[row] ?? '', col)
-    clearContinuationRight(lines, row, col, base.width)
-    setCharInLines(lines, row, col, ch, base.width)
-    col += 1
-    if (col >= base.width) {
+    if (bounds) {
+      if (row < bounds.topInner || row > bounds.bottomInner) break
+      if (col < bounds.leftInner) col = bounds.leftInner
+      if (col > bounds.rightInner) {
+        if (row >= bounds.bottomInner) break
+        row += 1
+        if (row >= base.height) break
+        col = wrapCol
+      }
+    } else if (col >= base.width) {
       row += 1
-      col = 0
       if (row >= base.height) break
+      col = 0
+    }
+    col = snapColToCellStart(lines[row] ?? '', col, base.width)
+
+    let writeCh = ch
+    let writeWidth = writeCh === CONTINUATION_CELL ? 1 : cellDisplayWidth(writeCh)
+    const maxCol = bounds ? bounds.rightInner : base.width - 1
+
+    if (writeWidth === 2 && col + 1 > maxCol) {
+      if (bounds) {
+        if (row >= bounds.bottomInner) break
+        row += 1
+        if (row >= base.height) break
+        col = wrapCol
+      } else {
+        row += 1
+        if (row >= base.height) break
+        col = 0
+      }
+      col = snapColToCellStart(lines[row] ?? '', col, base.width)
+    }
+
+    if (writeWidth === 2 && col + 1 > (bounds ? bounds.rightInner : base.width - 1)) {
+      writeCh = ' '
+      writeWidth = 1
+    }
+
+    clearContinuationRight(lines, row, col, base.width)
+    setCharInLines(lines, row, col, writeCh, base.width)
+    col += writeWidth
+    if (bounds) {
+      if (col > bounds.rightInner) {
+        if (row >= bounds.bottomInner) {
+          col = bounds.rightInner
+          break
+        }
+        row += 1
+        if (row >= base.height) break
+        col = wrapCol
+      }
+    } else if (col >= base.width) {
+      row += 1
+      if (row >= base.height) break
+      col = 0
     }
   }
-  return { next: { ...base, lines }, cursor: { row: clampInt(row, 0, base.height - 1), col: clampInt(col, 0, base.width - 1) } }
+  const cursorRow = bounds ? clampInt(row, bounds.topInner, bounds.bottomInner) : clampInt(row, 0, base.height - 1)
+  const cursorCol = bounds ? clampInt(col, bounds.leftInner, bounds.rightInner) : clampInt(col, 0, base.width - 1)
+  const cursorLine = lines[cursorRow] ?? ''
+  return {
+    next: { ...base, lines },
+    cursor: { row: cursorRow, col: snapColToCellStart(cursorLine, cursorCol, base.width) }
+  }
 }
 
 function diffText(oldText: string, newText: string) {
@@ -1254,22 +2010,60 @@ export default function App() {
   const [isNewOpen, setIsNewOpen] = useState(false)
   const [customWidth, setCustomWidth] = useState(80)
   const [customHeight, setCustomHeight] = useState(24)
+  const [isFigureInsertOpen, setIsFigureInsertOpen] = useState(false)
+  const [figureWidth, setFigureWidth] = useState(24)
+  const [figureHeight, setFigureHeight] = useState(8)
   const [language, setLanguage] = useState<Language>(() => {
     const stored = readStorage(STORAGE_KEYS.language)
     if (stored === 'ko' || stored === 'en' || stored === 'ja' || stored === 'zh-Hant' || stored === 'zh-Hans') return stored
     return 'ko'
   })
+  const [themeSetting, setThemeSetting] = useState<ThemeSetting>(() => {
+    const stored = readStorage(STORAGE_KEYS.theme)
+    if (
+      stored === 'system' ||
+      stored === 'light' ||
+      stored === 'dark' ||
+      stored === 'monokai' ||
+      stored === 'kimble-dark' ||
+      stored === 'dracula' ||
+      stored === 'nord' ||
+      stored === 'solarized-light' ||
+      stored === 'solarized-dark'
+    )
+      return stored
+    return 'system'
+  })
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isManageRecentOpen, setIsManageRecentOpen] = useState(false)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [resolvedTheme, setResolvedTheme] = useState<ThemeId>(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'dark'
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
   const [filePath, setFilePath] = useState<string | null>(() => readStorage(STORAGE_KEYS.filePath))
+  const [fileOrigin, setFileOrigin] = useState<'opened' | 'none'>(() => (readStorage(STORAGE_KEYS.filePath) ? 'opened' : 'none'))
+  const [pinnedFiles, setPinnedFiles] = useState<string[]>(() => readPathList(STORAGE_KEYS.pinnedFiles, 10))
+  const [recentFiles, setRecentFiles] = useState<string[]>(() => {
+    const pinned = readPathList(STORAGE_KEYS.pinnedFiles, 10)
+    return readPathList(STORAGE_KEYS.recentFiles, 10).filter((p) => !pinned.includes(p)).slice(0, 10)
+  })
   const [exportNewline, setExportNewline] = useState<ExportNewline>(() => {
     const stored = readStorage(STORAGE_KEYS.exportNewline)
     if (stored === 'lf' || stored === 'crlf') return stored
     return navigator.userAgent.includes('Windows') ? 'crlf' : 'lf'
   })
-  const [padRightOnSave, setPadRightOnSave] = useState(() => readStorage(STORAGE_KEYS.padRightOnSave) === 'true')
+  const [padRightOnSave, setPadRightOnSave] = useState(() => {
+    const stored = readStorage(STORAGE_KEYS.padRightOnSave)
+    if (stored === 'true') return true
+    if (stored === 'false') return false
+    return true
+  })
   const [lastError, setLastError] = useState<string | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const preRef = useRef<HTMLPreElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const didAutoOpenRef = useRef(false)
   const [editorFontFamily, setEditorFontFamily] = useState<string | null>(null)
   const [tool, setTool] = useState<ToolMode>('text')
   const [freeChar, setFreeChar] = useState('#')
@@ -1286,6 +2080,7 @@ export default function App() {
   const [metrics, setMetrics] = useState<TextMetrics | null>(null)
   const metricsRef = useRef<TextMetrics | null>(null)
   const composingRef = useRef(false)
+  const enterAnchorRef = useRef<Cell | null>(null)
   const restoreViewportRef = useRef<{ scrollTop: number; scrollLeft: number } | null>(null)
   const gestureRef = useRef<{
     tool: Exclude<ToolMode, 'text'>
@@ -1316,21 +2111,40 @@ export default function App() {
 
   const renderText = useMemo(() => bufferToText(draftBuffer ?? buffer, { padRight: true }), [buffer, draftBuffer])
   const t = useCallback((key: TextKey) => TEXT[language][key], [language])
+  const clearToast = useCallback(() => setToastMessage(null), [])
+  const onThemeSettingChange = useCallback(
+    (theme: ThemeSetting) => {
+      setThemeSetting(theme)
+      setToastMessage(TEXT[language].toastThemeApplied)
+    },
+    [language]
+  )
+  const onLanguageSettingChange = useCallback((lang: Language) => {
+    setLanguage(lang)
+    setToastMessage(TEXT[lang].toastLanguageApplied)
+  }, [])
 
   const snapCursorToCellStart = useCallback(
     (pos: Cell) => {
       const row = clampInt(pos.row, 0, buffer.height - 1)
       const col = clampInt(pos.col, 0, buffer.width - 1)
       const line = buffer.lines[row] ?? ''
-      return { row, col: snapColToCellStart(line, col) }
+      return { row, col: snapColToCellStart(line, col, buffer.width) }
     },
     [buffer.height, buffer.lines, buffer.width]
   )
 
   useEffect(() => writeStorage(STORAGE_KEYS.language, language), [language])
+  useEffect(() => writeStorage(STORAGE_KEYS.theme, themeSetting), [themeSetting])
   useEffect(() => writeStorage(STORAGE_KEYS.exportNewline, exportNewline), [exportNewline])
   useEffect(() => writeStorage(STORAGE_KEYS.padRightOnSave, padRightOnSave ? 'true' : 'false'), [padRightOnSave])
   useEffect(() => writeStorage(STORAGE_KEYS.drawStyle, drawStyle), [drawStyle])
+  useEffect(() => writeStorage(STORAGE_KEYS.pinnedFiles, JSON.stringify(pinnedFiles)), [pinnedFiles])
+  useEffect(() => writeStorage(STORAGE_KEYS.recentFiles, JSON.stringify(recentFiles)), [recentFiles])
+  useEffect(() => {
+    if (pinnedFiles.length === 0) return
+    setRecentFiles((prev) => prev.filter((p) => !pinnedFiles.includes(p)).slice(0, 10))
+  }, [pinnedFiles])
   useEffect(() => {
     if (isFindOpen) findInputRef.current?.focus()
   }, [isFindOpen])
@@ -1341,12 +2155,15 @@ export default function App() {
     if (!findQuery) setFindMatch(null)
   }, [findQuery])
   useEffect(() => {
-    if (!filePath) return
+    if (!filePath) {
+      removeStorage(STORAGE_KEYS.filePath)
+      return
+    }
     writeStorage(STORAGE_KEYS.filePath, filePath)
   }, [filePath])
 
   useEffect(() => {
-    const el = inputRef.current
+    const el = preRef.current ?? inputRef.current
     if (!el) return
     const family = chooseEditorFontFamily(el)
     if (!family) return
@@ -1363,40 +2180,117 @@ export default function App() {
     setMetrics(m)
   }, [editorFontFamily])
 
+  useEffect(() => {
+    if (themeSetting !== 'system') {
+      setResolvedTheme(themeSetting)
+      return
+    }
+    if (typeof window.matchMedia !== 'function') {
+      setResolvedTheme('dark')
+      return
+    }
+    const mql = window.matchMedia('(prefers-color-scheme: dark)')
+    const update = () => setResolvedTheme(mql.matches ? 'dark' : 'light')
+    update()
+    try {
+      mql.addEventListener('change', update)
+      return () => mql.removeEventListener('change', update)
+    } catch {
+      mql.addListener(update)
+      return () => mql.removeListener(update)
+    }
+  }, [themeSetting])
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme
+  }, [resolvedTheme])
+
+  useEffect(() => {
+    const el = preRef.current
+    if (!el) return
+    const m = measureEditorElement(el)
+    metricsRef.current = m
+    setMetrics(m)
+  }, [resolvedTheme])
+
   const openFileByPath = useCallback(
     async (path: string) => {
       try {
         setLastError(null)
-        const contents = await invoke<string>('read_text_file', { path })
+        const contents = stripUtf8Bom(await invoke<string>('read_text_file', { path }))
+        if (/\r\n/.test(contents)) setExportNewline('crlf')
+        else if (/\n/.test(contents)) setExportNewline('lf')
         loadBufferFromTextAutoSize(contents)
         setFilePath(path)
+        setFileOrigin('opened')
+        if (pinnedFiles.includes(path)) setRecentFiles((prev) => prev.filter((p) => p !== path))
+        else setRecentFiles((prev) => [path, ...prev.filter((p) => p !== path && !pinnedFiles.includes(p))].slice(0, 10))
         queueMicrotask(() => inputRef.current?.focus())
+        return true
       } catch {
         setLastError(t('loadError'))
+        setRecentFiles((prev) => prev.filter((p) => p !== path))
+        setPinnedFiles((prev) => prev.filter((p) => p !== path))
+        if (filePath === path) {
+          setFilePath(null)
+          setFileOrigin('none')
+        }
+        return false
       }
     },
-    [loadBufferFromTextAutoSize, t]
+    [filePath, loadBufferFromTextAutoSize, pinnedFiles, t]
   )
 
   const saveBufferText = useCallback(
     async (opts?: { forceDialog?: boolean }) => {
+      setLastError(null)
       const forceDialog = opts?.forceDialog ?? false
-      const contents = normalizeNewlines(bufferToText(buffer, { padRight: padRightOnSave }), exportNewline)
+      const contents = normalizeForSave(bufferToText(buffer, { padRight: padRightOnSave }), exportNewline)
 
-      if (filePath && !forceDialog) {
-        await invoke('write_text_file', { path: filePath, contents })
-        return
+      const tryWrite = async (path: string) => {
+        await invoke<void>('write_text_file', { path, contents })
+        setLastError(null)
+        setFilePath(path)
+        if (pinnedFiles.includes(path)) setRecentFiles((prev) => prev.filter((p) => p !== path))
+        else setRecentFiles((prev) => [path, ...prev.filter((p) => p !== path && !pinnedFiles.includes(p))].slice(0, 10))
       }
 
-      const path = await save({
-        defaultPath: filePath ?? 'txeditor.txt',
-        filters: [{ name: 'Text', extensions: ['txt'] }]
-      })
-      if (!path) return
-      await invoke('write_text_file', { path, contents })
-      setFilePath(path)
+      if (filePath && !forceDialog) {
+        try {
+          if (fileOrigin === 'opened') {
+            const ok = window.confirm(`${t('overwriteConfirm')}\n${filePath}`)
+            if (!ok) return
+          }
+          await tryWrite(filePath)
+          return
+        } catch (err) {
+          setLastError(`${t('saveError')}\n${String(err)}`)
+        }
+      }
+
+      try {
+        const defaultName = filePath ? basename(filePath) : 'txeditor.txt'
+        const defaultDir = recentFiles[0] ? dirname(recentFiles[0]) : ''
+        const defaultPath = filePath ?? (defaultDir ? joinPath(defaultDir, defaultName) : defaultName)
+        const picked = await save({
+          title: t('save'),
+          defaultPath
+        })
+        const path = dialogPathToString(picked)
+        if (!path) return
+        const finalPath = ensureDefaultExtension(path, 'txt')
+        const platform = navigator.userAgent.toLowerCase().includes('windows') ? 'windows' : 'other'
+        if (!isValidSavePath(finalPath, platform)) {
+          setLastError(`${t('invalidSavePath')}\n${finalPath}`)
+          return
+        }
+        await tryWrite(finalPath)
+        setFileOrigin('none')
+      } catch (err) {
+        setLastError(`${t('saveError')}\n${String(err)}`)
+      }
     },
-    [buffer, exportNewline, filePath, padRightOnSave]
+    [buffer, exportNewline, fileOrigin, filePath, padRightOnSave, pinnedFiles, recentFiles, t]
   )
 
   const openTextFile = useCallback(async () => {
@@ -1405,10 +2299,36 @@ export default function App() {
       filters: [{ name: 'Text', extensions: ['txt'] }]
     })
     if (!picked) return
-    const path = Array.isArray(picked) ? picked[0] : picked
+    const first = Array.isArray(picked) ? picked[0] : picked
+    const path = dialogPathToString(first)
     if (!path) return
     await openFileByPath(path)
   }, [openFileByPath])
+
+  const togglePinRecent = useCallback((path: string) => {
+    setPinnedFiles((prevPinned) => {
+      const isPinned = prevPinned.includes(path)
+      const nextPinned = isPinned ? prevPinned.filter((p) => p !== path) : normalizePathList([path, ...prevPinned], 10)
+      setRecentFiles((prevRecent) => {
+        const base = prevRecent.filter((p) => p !== path && !nextPinned.includes(p))
+        if (!isPinned) return base.slice(0, 10)
+        return normalizePathList([path, ...base], 10)
+      })
+      return nextPinned
+    })
+  }, [])
+
+  const removeRecentPath = useCallback((path: string) => {
+    setPinnedFiles((prev) => prev.filter((p) => p !== path))
+    setRecentFiles((prev) => prev.filter((p) => p !== path))
+  }, [])
+
+  useEffect(() => {
+    if (didAutoOpenRef.current) return
+    didAutoOpenRef.current = true
+    if (!filePath) return
+    void openFileByPath(filePath)
+  }, [filePath, openFileByPath])
 
   const clearSelection = useCallback(() => {
     selectGestureRef.current = null
@@ -1465,7 +2385,32 @@ export default function App() {
     queueMicrotask(() => inputRef.current?.focus())
   }, [])
 
-  const copySelection = useCallback(() => {
+  const openFigureInsert = useCallback(() => {
+    cancelDrawing()
+    clearSelection()
+    setTool('text')
+    setIsFigureInsertOpen(true)
+    queueMicrotask(() => inputRef.current?.focus())
+  }, [cancelDrawing, clearSelection])
+
+  const applyInsertFigure = useCallback(() => {
+    const viewport = viewportRef.current
+    if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
+    const { buffer: currentBuffer, cursor: currentCursor } = useEditorStore.getState()
+    const at = currentCursor ?? { row: 0, col: 0 }
+    const { buffer: next, cursorAfter } = insertBlankFigure(
+      { width: currentBuffer.width, height: currentBuffer.height, lines: currentBuffer.lines },
+      at,
+      { width: figureWidth, height: figureHeight },
+      drawStyle
+    )
+    commitBuffer({ width: next.width, height: next.height, lines: next.lines })
+    setCursor({ row: cursorAfter.row, col: cursorAfter.col })
+    setIsFigureInsertOpen(false)
+    queueMicrotask(() => inputRef.current?.focus())
+  }, [commitBuffer, drawStyle, figureHeight, figureWidth, setCursor])
+
+  const copySelection = useCallback(async () => {
     if (!selectionRect) return
     const originCell = selectionAnchorRef.current?.start
     const clip = copyRectFromBuffer(buffer, selectionRect, originCell)
@@ -1475,7 +2420,15 @@ export default function App() {
       const history = nextHistory.slice(0, 20)
       return { current: clip, history }
     })
-  }, [buffer, selectionRect])
+    try {
+      setLastError(null)
+      const platform = navigator.userAgent.toLowerCase().includes('windows') ? 'windows' : 'other'
+      const fixedWidthLines = clip.lines.map((line) => padCells(line, clip.width))
+      await writeClipboardText(normalizeForClipboard(fixedWidthLines.join('\n'), platform))
+    } catch (err) {
+      setLastError(`${t('clipboardError')}\n${String(err)}`)
+    }
+  }, [buffer, selectionRect, t])
 
   const deleteSelection = useCallback(() => {
     if (!selectionRect) return
@@ -1484,8 +2437,8 @@ export default function App() {
     clearSelection()
   }, [buffer, clearSelection, commitBuffer, selectionRect])
 
-  const cutSelection = useCallback(() => {
-    copySelection()
+  const cutSelection = useCallback(async () => {
+    await copySelection()
     deleteSelection()
   }, [copySelection, deleteSelection])
 
@@ -1565,7 +2518,7 @@ export default function App() {
         for (;;) {
           const found = displayLine.indexOf(q, idx)
           if (found === -1) break
-          const col = cellLength(displayLine.slice(0, found))
+          const col = toCells(displayLine.slice(0, found)).length
           matches.push({ row, col })
           idx = found + Math.max(1, q.length)
         }
@@ -1775,10 +2728,16 @@ export default function App() {
         return
       }
 
+      if (key === 'i' && e.shiftKey) {
+        e.preventDefault()
+        openFigureInsert()
+        return
+      }
+
 
       if (key === 's') {
         e.preventDefault()
-        void saveBufferText()
+        void saveBufferText(e.shiftKey ? { forceDialog: true } : undefined)
         return
       }
 
@@ -1810,6 +2769,7 @@ export default function App() {
     closeFindReplace,
     copySelection,
     cutSelection,
+    openFigureInsert,
     isFindOpen,
     isReplaceOpen,
     openFind,
@@ -1903,10 +2863,15 @@ export default function App() {
     const viewport = viewportRef.current
     if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
     const { buffer: currentBuffer, cursor: currentCursor } = useEditorStore.getState()
-    const at = currentCursor ?? { row: 0, col: 0 }
-    const nextRow = clampInt(at.row + 1, 0, currentBuffer.height - 1)
-    const nextCol = 0
+    const at = currentCursor ? snapCursorToCellStartInBuffer(currentBuffer, currentCursor) : { row: 0, col: 0 }
+    const anchor = enterAnchorRef.current ? snapCursorToCellStartInBuffer(currentBuffer, enterAnchorRef.current) : at
+    const bounds = findEnclosingBoxBounds(currentBuffer.lines, currentBuffer.width, currentBuffer.height, anchor)
+    const nextRow = bounds
+      ? clampInt(anchor.row + 1, bounds.topInner, bounds.bottomInner)
+      : clampInt(anchor.row + 1, 0, currentBuffer.height - 1)
+    const nextCol = bounds ? clampInt(anchor.col, bounds.leftInner, bounds.rightInner) : clampInt(anchor.col, 0, currentBuffer.width - 1)
     setCursor({ row: nextRow, col: nextCol })
+    enterAnchorRef.current = { row: nextRow, col: nextCol }
     setDraftBuffer(null)
   }, [setCursor])
 
@@ -1924,6 +2889,7 @@ export default function App() {
         const clicked = cellFromPointerEvent(e, el, metrics, { width: buffer.width, height: buffer.height })
         const next = snapCursorToCellStart(clicked)
         setCursor(next)
+        enterAnchorRef.current = next
         queueMicrotask(() => inputRef.current?.focus())
         return
       }
@@ -1937,6 +2903,9 @@ export default function App() {
       el.setPointerCapture(e.pointerId)
       const start = cellFromPointerEvent(e, el, metrics, { width: buffer.width, height: buffer.height })
       if (tool === 'select') {
+        const next = snapCursorToCellStart(start)
+        setCursor(next)
+        enterAnchorRef.current = next
         selectGestureRef.current = { start, current: start }
         selectionAnchorRef.current = { start, end: start }
         setIsSelecting(true)
@@ -2030,14 +2999,213 @@ export default function App() {
     [applyAndCommitGesture]
   )
 
+  const editorPane = (
+    <>
+      <div
+        ref={viewportRef}
+        className="ui-editor h-full w-full select-none overflow-auto outline-none"
+        onPointerDown={(e) => {
+          beginGesture(e)
+          queueMicrotask(() => inputRef.current?.focus())
+        }}
+        onPointerMove={moveGesture}
+        onPointerUp={endGesture}
+        onPointerCancel={cancelPointerGesture}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          const el = e.currentTarget
+          const metricsEl = preRef.current ?? el
+          metricsRef.current = metricsRef.current ?? measureEditorElement(metricsEl)
+          const m = metricsRef.current
+          if (!m) return
+          const clicked = cellFromClientPoint(e.clientX, e.clientY, el, m, { width: buffer.width, height: buffer.height })
+          const inSelection = Boolean(selectionRect && isCellInRect(selectionRect, clicked))
+          setContextMenu({ open: true, x: e.clientX, y: e.clientY, at: clicked, inSelection })
+        }}
+        onMouseDown={(e) => e.preventDefault()}
+      >
+        <div className="relative">
+          <pre
+            ref={preRef}
+            className="ui-editor-pre p-3 font-mono text-xs"
+            style={editorFontFamily ? { fontFamily: editorFontFamily } : undefined}
+          >
+            {renderText}
+          </pre>
+          {metrics ? (
+            <div
+              className="pointer-events-none absolute"
+              style={{
+                left: metrics.paddingLeft,
+                top: metrics.paddingTop,
+                width: buffer.width * metrics.charWidth,
+                height: buffer.height * metrics.lineHeight,
+                backgroundImage:
+                  'linear-gradient(to right, var(--ui-editor-grid) 1px, transparent 1px), linear-gradient(to bottom, var(--ui-editor-grid) 1px, transparent 1px)',
+                backgroundSize: `${metrics.charWidth}px ${metrics.lineHeight}px`,
+                outline: '3px solid var(--ui-editor-boundary)',
+                outlineOffset: '0px'
+              }}
+            />
+          ) : null}
+          {metrics && selectionRect ? (
+            <div className="pointer-events-none absolute inset-0">
+              {Array.from({ length: selectionRect.bottom - selectionRect.top + 1 }, (_, i) => selectionRect.top + i).map((row) => (
+                <div
+                  key={`sel-${row}`}
+                  className="absolute"
+                  style={{
+                    backgroundColor: 'var(--ui-editor-selection)',
+                    left: metrics.paddingLeft + selectionRect.left * metrics.charWidth,
+                    top: metrics.paddingTop + row * metrics.lineHeight,
+                    width: (selectionRect.right - selectionRect.left + 1) * metrics.charWidth,
+                    height: metrics.lineHeight
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+          {metrics && findQueryLen > 0 && findMatches.length > 0 ? (
+            <div className="pointer-events-none absolute inset-0">
+              {findMatches.map((m, i) => (
+                <div
+                  key={`find-${m.row}-${m.col}-${i}`}
+                  className="absolute"
+                  style={{
+                    backgroundColor: 'color-mix(in srgb, var(--ui-primary) 22%, transparent)',
+                    left: metrics.paddingLeft + m.col * metrics.charWidth,
+                    top: metrics.paddingTop + m.row * metrics.lineHeight,
+                    width: Math.max(0, Math.min(findQueryLen, buffer.width - m.col)) * metrics.charWidth,
+                    height: metrics.lineHeight
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+          {metrics && findMatch && findQueryLen > 0 ? (
+            <div
+              className="pointer-events-none absolute"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--ui-primary) 32%, transparent)',
+                left: metrics.paddingLeft + findMatch.col * metrics.charWidth,
+                top: metrics.paddingTop + findMatch.row * metrics.lineHeight,
+                width: Math.max(0, Math.min(findQueryLen, buffer.width - findMatch.col)) * metrics.charWidth,
+                height: metrics.lineHeight
+              }}
+            />
+          ) : null}
+          {tool === 'text' && cursor && metrics ? (
+            <div
+              className="pointer-events-none absolute z-20 bg-[var(--ui-editor-caret)]"
+              style={{
+                left: metrics.paddingLeft + cursor.col * metrics.charWidth,
+                top: metrics.paddingTop + cursor.row * metrics.lineHeight,
+                width: 2,
+                height: metrics.lineHeight
+              }}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      <textarea
+        ref={inputRef}
+        className="absolute left-0 top-0 h-px w-px opacity-0"
+        style={editorFontFamily ? { fontFamily: editorFontFamily } : undefined}
+        spellCheck={false}
+        wrap="off"
+        onCompositionStart={() => {
+          if (tool !== 'text' || isDrawing || isSelecting) return
+          composingRef.current = true
+          setDraftBuffer(null)
+        }}
+        onCompositionEnd={(e) => {
+          if (tool !== 'text' || isDrawing || isSelecting) return
+          composingRef.current = false
+          setDraftBuffer(null)
+          e.currentTarget.value = ''
+        }}
+        onBeforeInput={(e) => {
+          if (tool !== 'text' || isDrawing || isSelecting) return
+          const viewport = viewportRef.current
+          if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
+          const ne = e.nativeEvent as InputEvent
+          if (ne.inputType === 'insertCompositionText') return
+          if (ne.inputType === 'insertText' && typeof ne.data === 'string' && ne.data) {
+            e.preventDefault()
+            composingRef.current = false
+            applyOverwriteAt({ text: ne.data })
+            return
+          }
+          if (ne.inputType === 'insertLineBreak') {
+            e.preventDefault()
+            composingRef.current = false
+            applyEnter()
+          }
+        }}
+        onKeyDown={(e) => {
+          if (tool !== 'text' || isDrawing || isSelecting) return
+          if (e.key === 'Backspace') {
+            e.preventDefault()
+            applyBackspace()
+            return
+          }
+          if (e.key === 'Delete') {
+            e.preventDefault()
+            applyDelete()
+            return
+          }
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            applyEnter()
+          }
+        }}
+        onPaste={(e) => {
+          if (tool !== 'text' || isDrawing || isSelecting) return
+          const text = e.clipboardData.getData('text')
+          if (!text) return
+          e.preventDefault()
+          applyOverwriteAt({ text })
+        }}
+        onInput={(e) => {
+          const el = e.currentTarget
+          const v = el.value
+          if (composingRef.current) {
+            if (v && /^[\x20-\x7E]+$/.test(v)) {
+              composingRef.current = false
+              applyOverwriteAt({ text: v })
+              el.value = ''
+            } else if (v.length > 64) {
+              el.value = ''
+            }
+            return
+          }
+          if (v && tool === 'text' && !isDrawing && !isSelecting && !composingRef.current) {
+            applyOverwriteAt({ text: v })
+          }
+          el.value = ''
+        }}
+        onBlur={() => {
+          composingRef.current = false
+          setDraftBuffer(null)
+        }}
+      />
+    </>
+  )
+
   return (
     <div className="flex h-full w-full flex-col">
       <MenuBar
         language={language}
-        onLanguageChange={setLanguage}
         onOpen={() => void openTextFile()}
         onNew={() => setIsNewOpen(true)}
         onSave={() => void saveBufferText()}
+        onSaveAs={() => void saveBufferText({ forceDialog: true })}
+        pinnedFiles={pinnedFiles}
+        recentFiles={recentFiles}
+        onOpenRecent={(path) => void openFileByPath(path)}
+        onClearRecent={() => setRecentFiles([])}
+        onManageRecent={() => setIsManageRecentOpen(true)}
         onUndo={() => {
           if (isDrawing) return
           undo()
@@ -2049,11 +3217,33 @@ export default function App() {
         onCopy={copySelection}
         onCut={cutSelection}
         onPaste={pasteClipboard}
+        onInsertFigure={openFigureInsert}
         onFind={openFind}
         onReplace={openReplace}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
-      <div className="flex min-h-0 flex-1 flex-col gap-3 bg-slate-50 p-3">
-        <div className="flex flex-wrap items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+      <SettingsModal
+        open={isSettingsOpen}
+        language={language}
+        themeSetting={themeSetting}
+        onThemeChange={onThemeSettingChange}
+        onLanguageChange={onLanguageSettingChange}
+        onClose={() => setIsSettingsOpen(false)}
+      />
+      <ManageRecentModal
+        open={isManageRecentOpen}
+        language={language}
+        pinnedFiles={pinnedFiles}
+        recentFiles={recentFiles}
+        onOpenPath={(path) => void openFileByPath(path)}
+        onTogglePin={togglePinRecent}
+        onRemovePath={removeRecentPath}
+        onClearRecent={() => setRecentFiles([])}
+        onClose={() => setIsManageRecentOpen(false)}
+      />
+      <Toast message={toastMessage} onDone={clearToast} />
+      <div className="flex min-h-0 flex-1 flex-col gap-3 bg-[var(--ui-bg)] p-3">
+        <div className="flex flex-wrap items-center gap-2 rounded border border-[var(--ui-border)] bg-[var(--ui-surface)] px-3 py-2 text-xs text-[var(--ui-text)]">
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1">
               <IconButton label={t('new')} icon="file" onClick={() => setIsNewOpen(true)} />
@@ -2062,7 +3252,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 border-l border-slate-200 pl-2">
+          <div className="flex items-center gap-2 border-l border-[var(--ui-border)] pl-2">
             <div className="flex items-center gap-1">
               <IconButton label={t('undo')} icon="undo" onClick={undo} disabled={isDrawing || isSelecting} />
               <IconButton label={t('redo')} icon="redo" onClick={redo} disabled={isDrawing || isSelecting} />
@@ -2071,7 +3261,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 border-l border-slate-200 pl-2">
+          <div className="flex items-center gap-2 border-l border-[var(--ui-border)] pl-2">
             <div className="font-semibold">{t('tools')}</div>
             <div className="flex items-center gap-1">
               <IconButton
@@ -2136,11 +3326,18 @@ export default function App() {
             </div>
           </div>
 
+          <div className="flex items-center gap-2 border-l border-[var(--ui-border)] pl-2">
+            <div className="font-semibold">{t('insert')}</div>
+            <div className="flex items-center gap-1">
+              <IconButton label={t('insertFigure')} icon="rect" onClick={openFigureInsert} />
+            </div>
+          </div>
+
           {tool === 'free' ? (
-            <div className="flex items-center gap-2 border-l border-slate-200 pl-2">
+            <div className="flex items-center gap-2 border-l border-[var(--ui-border)] pl-2">
               <span>{t('drawChar')}</span>
               <select
-                className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs"
+                className="ui-select px-2 py-0.5 text-xs"
                 value={freeChar}
                 onChange={(e) => setFreeChar(e.target.value)}
               >
@@ -2151,10 +3348,10 @@ export default function App() {
             </div>
           ) : null}
 
-          <div className="flex items-center gap-2 border-l border-slate-200 pl-2">
+          <div className="flex items-center gap-2 border-l border-[var(--ui-border)] pl-2">
             <span>{t('style')}</span>
             <select
-              className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs"
+              className="ui-select px-2 py-0.5 text-xs"
               value={drawStyle}
               onChange={(e) => setDrawStyle(e.target.value as DrawStyle)}
               disabled={isDrawing || isSelecting}
@@ -2165,17 +3362,17 @@ export default function App() {
           </div>
 
           {tool === 'select' ? (
-            <div className="flex flex-wrap items-center gap-2 border-l border-slate-200 pl-2">
+            <div className="flex flex-wrap items-center gap-2 border-l border-[var(--ui-border)] pl-2">
               <div className="flex items-center gap-2">
                 <span>{t('selection')}</span>
-                <span className="text-slate-500">
+                <span className="text-[var(--ui-text-dim)]">
                   {selectionRect ? `${selectionRect.left},${selectionRect.top}–${selectionRect.right},${selectionRect.bottom}` : '-'}
                 </span>
               </div>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+                  className="ui-btn px-2 py-1 disabled:opacity-40"
                   onClick={copySelection}
                   disabled={!selectionRect}
                 >
@@ -2183,7 +3380,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+                  className="ui-btn px-2 py-1 disabled:opacity-40"
                   onClick={cutSelection}
                   disabled={!selectionRect}
                 >
@@ -2191,7 +3388,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+                  className="ui-btn px-2 py-1 disabled:opacity-40"
                   onClick={pasteClipboard}
                   disabled={!clipboard.current}
                 >
@@ -2199,7 +3396,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-2 py-1 hover:bg-slate-50 disabled:opacity-40"
+                  className="ui-btn px-2 py-1 disabled:opacity-40"
                   onClick={deleteSelection}
                   disabled={!selectionRect}
                 >
@@ -2209,10 +3406,10 @@ export default function App() {
             </div>
           ) : null}
 
-          <div className="flex items-center gap-2 border-l border-slate-200 pl-2">
+          <div className="flex items-center gap-2 border-l border-[var(--ui-border)] pl-2">
             <span>{t('newline')}</span>
             <select
-              className="rounded border border-slate-300 bg-white px-2 py-0.5 text-xs"
+              className="ui-select px-2 py-0.5 text-xs"
               value={exportNewline}
               onChange={(e) => setExportNewline(e.target.value as ExportNewline)}
               disabled={isDrawing || isSelecting}
@@ -2222,7 +3419,7 @@ export default function App() {
             </select>
           </div>
 
-          <label className="flex items-center gap-2 border-l border-slate-200 pl-2">
+          <label className="flex items-center gap-2 border-l border-[var(--ui-border)] pl-2">
             <input
               type="checkbox"
               checked={padRightOnSave}
@@ -2232,182 +3429,19 @@ export default function App() {
             <span>{t('padRightOnSave')}</span>
           </label>
 
-          <div className="ml-auto text-xs text-slate-600">
+          <div className="ml-auto text-xs text-[var(--ui-text-dim)]">
             {t('ctrlCmdS')} · Ctrl/Cmd+O · Esc
           </div>
         </div>
 
         {lastError ? (
-          <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{lastError}</div>
+          <div className="rounded border border-[color-mix(in_srgb,var(--ui-danger)_45%,transparent)] bg-[color-mix(in_srgb,var(--ui-danger)_16%,transparent)] px-3 py-2 text-xs text-[var(--ui-text)]">
+            {lastError}
+          </div>
         ) : null}
 
         <div className="relative min-h-0 flex-1">
-          <div
-            ref={viewportRef}
-            className="h-full w-full select-none overflow-auto rounded border border-slate-300 bg-white outline-none"
-            onPointerDown={(e) => {
-              beginGesture(e)
-              queueMicrotask(() => inputRef.current?.focus())
-            }}
-            onPointerMove={moveGesture}
-            onPointerUp={endGesture}
-            onPointerCancel={cancelPointerGesture}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              const el = e.currentTarget
-              const metricsEl = preRef.current ?? el
-              metricsRef.current = metricsRef.current ?? measureEditorElement(metricsEl)
-              const m = metricsRef.current
-              if (!m) return
-              const clicked = cellFromClientPoint(e.clientX, e.clientY, el, m, { width: buffer.width, height: buffer.height })
-              const inSelection = Boolean(selectionRect && isCellInRect(selectionRect, clicked))
-              setContextMenu({ open: true, x: e.clientX, y: e.clientY, at: clicked, inSelection })
-            }}
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            <div className="relative">
-              <pre ref={preRef} className="p-3 font-mono text-xs text-slate-800" style={editorFontFamily ? { fontFamily: editorFontFamily } : undefined}>
-                {renderText}
-              </pre>
-              {metrics && selectionRect ? (
-                <div className="pointer-events-none absolute inset-0">
-                  {Array.from({ length: selectionRect.bottom - selectionRect.top + 1 }, (_, i) => selectionRect.top + i).map((row) => (
-                    <div
-                      key={`sel-${row}`}
-                      className="absolute bg-white mix-blend-difference"
-                      style={{
-                        left: metrics.paddingLeft + selectionRect.left * metrics.charWidth,
-                        top: metrics.paddingTop + row * metrics.lineHeight,
-                        width: (selectionRect.right - selectionRect.left + 1) * metrics.charWidth,
-                        height: metrics.lineHeight
-                      }}
-                    />
-                  ))}
-                </div>
-              ) : null}
-              {metrics && findQueryLen > 0 && findMatches.length > 0 ? (
-                <div className="pointer-events-none absolute inset-0">
-                  {findMatches.map((m, i) => (
-                    <div
-                      key={`find-${m.row}-${m.col}-${i}`}
-                      className="absolute bg-white/60 mix-blend-difference"
-                      style={{
-                        left: metrics.paddingLeft + m.col * metrics.charWidth,
-                        top: metrics.paddingTop + m.row * metrics.lineHeight,
-                        width: Math.max(0, Math.min(findQueryLen, buffer.width - m.col)) * metrics.charWidth,
-                        height: metrics.lineHeight
-                      }}
-                    />
-                  ))}
-                </div>
-              ) : null}
-              {metrics && findMatch && findQueryLen > 0 ? (
-                <div
-                  className="pointer-events-none absolute bg-white mix-blend-difference"
-                  style={{
-                    left: metrics.paddingLeft + findMatch.col * metrics.charWidth,
-                    top: metrics.paddingTop + findMatch.row * metrics.lineHeight,
-                    width: Math.max(0, Math.min(findQueryLen, buffer.width - findMatch.col)) * metrics.charWidth,
-                    height: metrics.lineHeight
-                  }}
-                />
-              ) : null}
-              {tool === 'text' && cursor && metrics ? (
-                <div
-                  className="pointer-events-none absolute z-20 bg-slate-800"
-                  style={{
-                    left: metrics.paddingLeft + cursor.col * metrics.charWidth,
-                    top: metrics.paddingTop + cursor.row * metrics.lineHeight,
-                    width: 2,
-                    height: metrics.lineHeight
-                  }}
-                />
-              ) : null}
-            </div>
-          </div>
-
-          <textarea
-            ref={inputRef}
-            className="absolute left-0 top-0 h-px w-px opacity-0"
-            style={editorFontFamily ? { fontFamily: editorFontFamily } : undefined}
-            spellCheck={false}
-            wrap="off"
-            onCompositionStart={() => {
-              if (tool !== 'text' || isDrawing || isSelecting) return
-              composingRef.current = true
-              setDraftBuffer(null)
-            }}
-            onCompositionEnd={(e) => {
-              if (tool !== 'text' || isDrawing || isSelecting) return
-              composingRef.current = false
-              setDraftBuffer(null)
-              e.currentTarget.value = ''
-            }}
-            onBeforeInput={(e) => {
-              if (tool !== 'text' || isDrawing || isSelecting) return
-              const viewport = viewportRef.current
-              if (viewport) restoreViewportRef.current = { scrollTop: viewport.scrollTop, scrollLeft: viewport.scrollLeft }
-              const ne = e.nativeEvent as InputEvent
-              if (ne.inputType === 'insertCompositionText') return
-              if (ne.inputType === 'insertText' && typeof ne.data === 'string' && ne.data) {
-                e.preventDefault()
-                composingRef.current = false
-                applyOverwriteAt({ text: ne.data })
-                return
-              }
-              if (ne.inputType === 'insertLineBreak') {
-                e.preventDefault()
-                composingRef.current = false
-                applyEnter()
-              }
-            }}
-            onKeyDown={(e) => {
-              if (tool !== 'text' || isDrawing || isSelecting) return
-              if (e.key === 'Backspace') {
-                e.preventDefault()
-                applyBackspace()
-                return
-              }
-              if (e.key === 'Delete') {
-                e.preventDefault()
-                applyDelete()
-                return
-              }
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                applyEnter()
-              }
-            }}
-            onPaste={(e) => {
-              if (tool !== 'text' || isDrawing || isSelecting) return
-              const text = e.clipboardData.getData('text')
-              if (!text) return
-              e.preventDefault()
-              applyOverwriteAt({ text })
-            }}
-            onInput={(e) => {
-              const el = e.currentTarget
-              const v = el.value
-              if (composingRef.current) {
-                if (v && /^[\x20-\x7E]+$/.test(v)) {
-                  composingRef.current = false
-                  applyOverwriteAt({ text: v })
-                  el.value = ''
-                } else if (v.length > 64) {
-                  el.value = ''
-                }
-                return
-              }
-              if (v && tool === 'text' && !isDrawing && !isSelecting && !composingRef.current) {
-                applyOverwriteAt({ text: v })
-              }
-              el.value = ''
-            }}
-            onBlur={() => {
-              composingRef.current = false
-              setDraftBuffer(null)
-            }}
-          />
+          {editorPane}
         </div>
       </div>
       <StatusBar language={language} newlineMode={exportNewline} filePath={filePath} />
@@ -2415,13 +3449,13 @@ export default function App() {
       {contextMenu.open ? (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 w-44 rounded border border-slate-200 bg-white p-1 text-sm shadow-lg"
+          className="fixed z-50 w-44 rounded border border-[var(--ui-border)] bg-[var(--ui-surface)] p-1 text-sm shadow-[var(--ui-shadow-md)]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <button
             type="button"
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!contextMenu.inSelection || !selectionRect}
             onClick={() => {
               setContextMenu({ open: false, x: 0, y: 0, at: null, inSelection: false })
@@ -2429,14 +3463,14 @@ export default function App() {
             }}
           >
             <span className="flex items-center gap-2">
-              <span className="w-4 text-center text-slate-500">⎘</span>
+              <span className="w-4 text-center text-[var(--ui-text-dim)]">⎘</span>
               <span>{t('copy')}</span>
             </span>
-            <span className="text-xs text-slate-400">Ctrl+C</span>
+            <span className="text-xs text-[var(--ui-text-dim)]">Ctrl+C</span>
           </button>
           <button
             type="button"
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!contextMenu.inSelection || !selectionRect}
             onClick={() => {
               setContextMenu({ open: false, x: 0, y: 0, at: null, inSelection: false })
@@ -2444,14 +3478,14 @@ export default function App() {
             }}
           >
             <span className="flex items-center gap-2">
-              <span className="w-4 text-center text-slate-500">✂</span>
+              <span className="w-4 text-center text-[var(--ui-text-dim)]">✂</span>
               <span>{t('cut')}</span>
             </span>
-            <span className="text-xs text-slate-400">Ctrl+X</span>
+            <span className="text-xs text-[var(--ui-text-dim)]">Ctrl+X</span>
           </button>
           <button
             type="button"
-            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[var(--ui-text)] hover:bg-[var(--ui-surface-2)] disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!clipboard.current || !contextMenu.at}
             onClick={() => {
               const at = contextMenu.at
@@ -2460,10 +3494,10 @@ export default function App() {
             }}
           >
             <span className="flex items-center gap-2">
-              <span className="w-4 text-center text-slate-500">⎀</span>
+              <span className="w-4 text-center text-[var(--ui-text-dim)]">⎀</span>
               <span>{t('paste')}</span>
             </span>
-            <span className="text-xs text-slate-400">Ctrl+V</span>
+            <span className="text-xs text-[var(--ui-text-dim)]">Ctrl+V</span>
           </button>
         </div>
       ) : null}
@@ -2475,12 +3509,12 @@ export default function App() {
             if (e.target === e.currentTarget) closeFindReplace()
           }}
         >
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-lg">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div className="text-sm font-semibold text-slate-800">{t('find')}</div>
+          <div className="w-full max-w-lg rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-md)]">
+            <div className="flex items-center justify-between border-b border-[var(--ui-border)] px-4 py-3">
+              <div className="text-sm font-semibold text-[var(--ui-text)]">{t('find')}</div>
               <button
                 type="button"
-                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                className="ui-btn px-2 py-1 text-xs"
                 onClick={closeFindReplace}
               >
                 {t('close')}
@@ -2501,21 +3535,21 @@ export default function App() {
                 }
               }}
             >
-              <label className="mb-3 block text-xs font-semibold text-slate-700">{t('search')}</label>
+              <label className="mb-3 block text-xs font-semibold text-[var(--ui-text-muted)]">{t('search')}</label>
               <input
                 ref={findInputRef}
                 value={findQuery}
                 onChange={(e) => setFindQuery(e.target.value)}
-                className="mb-4 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                className="ui-input mb-4 w-full px-3 py-2 text-sm"
               />
               <div className="flex items-center justify-between gap-2">
-                <div className="text-xs text-slate-500 tabular-nums">
+                <div className="text-xs text-[var(--ui-text-dim)] tabular-nums">
                   {(currentFindIndex ?? -1) + 1}/{findMatches.length}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    className="ui-btn px-3 py-2 text-sm"
                     onClick={() => findPrev()}
                     disabled={findMatches.length === 0}
                   >
@@ -2523,7 +3557,7 @@ export default function App() {
                   </button>
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  className="ui-btn px-3 py-2 text-sm"
                   onClick={() => findNext()}
                   disabled={findMatches.length === 0}
                 >
@@ -2543,12 +3577,12 @@ export default function App() {
             if (e.target === e.currentTarget) closeFindReplace()
           }}
         >
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-lg">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div className="text-sm font-semibold text-slate-800">{t('replace')}</div>
+          <div className="w-full max-w-lg rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-md)]">
+            <div className="flex items-center justify-between border-b border-[var(--ui-border)] px-4 py-3">
+              <div className="text-sm font-semibold text-[var(--ui-text)]">{t('replace')}</div>
               <button
                 type="button"
-                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                className="ui-btn px-2 py-1 text-xs"
                 onClick={closeFindReplace}
               >
                 {t('close')}
@@ -2569,23 +3603,23 @@ export default function App() {
                 }
               }}
             >
-              <label className="mb-1 block text-xs font-semibold text-slate-700">{t('search')}</label>
+              <label className="mb-1 block text-xs font-semibold text-[var(--ui-text-muted)]">{t('search')}</label>
               <input
                 value={findQuery}
                 onChange={(e) => setFindQuery(e.target.value)}
-                className="mb-3 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                className="ui-input mb-3 w-full px-3 py-2 text-sm"
               />
-              <label className="mb-1 block text-xs font-semibold text-slate-700">{t('replaceWith')}</label>
+              <label className="mb-1 block text-xs font-semibold text-[var(--ui-text-muted)]">{t('replaceWith')}</label>
               <input
                 ref={replaceInputRef}
                 value={replaceQuery}
                 onChange={(e) => setReplaceQuery(e.target.value)}
-                className="mb-4 w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                className="ui-input mb-4 w-full px-3 py-2 text-sm"
               />
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  className="ui-btn px-3 py-2 text-sm"
                   onClick={() => findPrev()}
                   disabled={findMatches.length === 0}
                 >
@@ -2593,7 +3627,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  className="ui-btn px-3 py-2 text-sm"
                   onClick={() => replacePrev()}
                   disabled={findMatches.length === 0}
                 >
@@ -2601,7 +3635,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  className="ui-btn px-3 py-2 text-sm"
                   onClick={() => findNext()}
                   disabled={findMatches.length === 0}
                 >
@@ -2609,7 +3643,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  className="ui-btn px-3 py-2 text-sm"
                   onClick={replaceNext}
                   disabled={findMatches.length === 0}
                 >
@@ -2617,7 +3651,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  className="ui-btn px-3 py-2 text-sm"
                   onClick={replaceAll}
                   disabled={findMatches.length === 0}
                 >
@@ -2631,12 +3665,12 @@ export default function App() {
 
       {isNewOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-lg rounded-lg border border-slate-200 bg-white shadow-lg">
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-              <div className="text-sm font-semibold text-slate-800">{t('newBuffer')}</div>
+          <div className="w-full max-w-lg rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-md)]">
+            <div className="flex items-center justify-between border-b border-[var(--ui-border)] px-4 py-3">
+              <div className="text-sm font-semibold text-[var(--ui-text)]">{t('newBuffer')}</div>
               <button
                 type="button"
-                className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                className="ui-btn px-2 py-1 text-xs"
                 onClick={() => setIsNewOpen(false)}
               >
                 {t('close')}
@@ -2648,9 +3682,11 @@ export default function App() {
                   <button
                     key={t.id}
                     type="button"
-                    className="rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    className="ui-btn px-3 py-2 text-sm"
                     onClick={() => {
                       newBuffer(t.width, t.height)
+                      setFilePath(null)
+                      setFileOrigin('none')
                       setIsNewOpen(false)
                       queueMicrotask(() => inputRef.current?.focus())
                     }}
@@ -2659,9 +3695,9 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                <div className="mb-2 text-xs font-semibold text-slate-700">{t('custom')}</div>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-700">
+              <div className="rounded border border-[var(--ui-border)] bg-[var(--ui-surface-2)] p-3">
+                <div className="mb-2 text-xs font-semibold text-[var(--ui-text-muted)]">{t('custom')}</div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--ui-text-muted)]">
                   <label className="flex items-center gap-2">
                     <span>{t('width')}</span>
                     <input
@@ -2670,7 +3706,7 @@ export default function App() {
                       max={2000}
                       value={customWidth}
                       onChange={(e) => setCustomWidth(clampInt(Number(e.target.value), 1, 2000))}
-                      className="w-24 rounded border border-slate-300 bg-white px-2 py-1"
+                      className="ui-input w-24 px-2 py-1"
                     />
                   </label>
                   <label className="flex items-center gap-2">
@@ -2681,14 +3717,16 @@ export default function App() {
                       max={2000}
                       value={customHeight}
                       onChange={(e) => setCustomHeight(clampInt(Number(e.target.value), 1, 2000))}
-                      className="w-24 rounded border border-slate-300 bg-white px-2 py-1"
+                      className="ui-input w-24 px-2 py-1"
                     />
                   </label>
                   <button
                     type="button"
-                    className="ml-auto rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                    className="ui-btn ml-auto px-3 py-1 text-xs"
                     onClick={() => {
                       newBuffer(customWidth, customHeight)
+                      setFilePath(null)
+                      setFileOrigin('none')
                       setIsNewOpen(false)
                       queueMicrotask(() => inputRef.current?.focus())
                     }}
@@ -2696,6 +3734,66 @@ export default function App() {
                     {t('create')}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isFigureInsertOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsFigureInsertOpen(false)
+          }}
+        >
+          <div className="w-full max-w-lg rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[var(--ui-shadow-md)]">
+            <div className="flex items-center justify-between border-b border-[var(--ui-border)] px-4 py-3">
+              <div className="text-sm font-semibold text-[var(--ui-text)]">{t('insertFigure')}</div>
+              <button
+                type="button"
+                className="ui-btn px-2 py-1 text-xs"
+                onClick={() => setIsFigureInsertOpen(false)}
+              >
+                {t('close')}
+              </button>
+            </div>
+            <div className="px-4 py-4">
+              <div className="rounded border border-[var(--ui-border)] bg-[var(--ui-surface-2)] p-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--ui-text-muted)]">
+                  <label className="flex items-center gap-2">
+                    <span>{t('width')}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={2000}
+                      value={figureWidth}
+                      onChange={(e) => setFigureWidth(clampInt(Number(e.target.value), 1, 2000))}
+                      className="ui-input w-24 px-2 py-1"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <span>{t('height')}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={2000}
+                      value={figureHeight}
+                      onChange={(e) => setFigureHeight(clampInt(Number(e.target.value), 1, 2000))}
+                      className="ui-input w-24 px-2 py-1"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="ui-btn ml-auto px-3 py-1 text-xs"
+                    onClick={applyInsertFigure}
+                  >
+                    {t('insert')}
+                  </button>
+                </div>
+              </div>
+              <div className="mt-2 text-xs text-[var(--ui-text-dim)]">
+                Ctrl+Shift+I
               </div>
             </div>
           </div>

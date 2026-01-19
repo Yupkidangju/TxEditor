@@ -29,6 +29,12 @@ npm.cmd run tauri dev
 npm run build:all
 ```
 
+또는 아래 명령을 사용해도 동일하게 `out\`으로 실행파일/설치파일을 모읍니다.
+
+```bash
+npm run build:exe
+```
+
 빌드가 성공하면 실행파일은 `out\TxEditor.exe` 및 `out\TxEditor-<version>-<platform>-<arch>.exe`로 복사됩니다.
 
 Windows 환경에서는 설치 파일도 함께 생성되어 `out\`에 복사됩니다.
@@ -37,6 +43,13 @@ Windows 환경에서는 설치 파일도 함께 생성되어 `out\`에 복사됩
 - NSIS: `TxEditor-<version>-<platform>-<arch>-nsis-*-setup.exe`
 
 설치 파일을 생성하려면 환경에 따라 WiX Toolset(MSI) 또는 NSIS(NSIS)가 필요할 수 있습니다.
+
+참고로 현재 빌드 스크립트는 Windows에서 아래 산출물을 `out\`으로 복사합니다.
+
+- `TxEditor.exe`
+- `TxEditor-<version>-win32-x64.exe`
+- `TxEditor-<version>-win32-x64-msi-*.msi`
+- `TxEditor-<version>-win32-x64-nsis-*-setup.exe`
 ## 5. 품질 게이트
 
 ```bash

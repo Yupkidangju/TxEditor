@@ -5,6 +5,43 @@ const segmenter =
 
 export const CONTINUATION_CELL = '\u0001'
 
+function isFullWidthCodePoint(codePoint: number) {
+  if (codePoint < 0x1100) return false
+  if (codePoint === 0x2329 || codePoint === 0x232a) return true
+  if (codePoint >= 0x1100 && codePoint <= 0x115f) return true
+  if (codePoint >= 0x2e80 && codePoint <= 0x3247 && codePoint !== 0x303f) return true
+  if (codePoint >= 0x3250 && codePoint <= 0x4dbf) return true
+  if (codePoint >= 0x4e00 && codePoint <= 0xa4c6) return true
+  if (codePoint >= 0xa960 && codePoint <= 0xa97c) return true
+  if (codePoint >= 0xac00 && codePoint <= 0xd7a3) return true
+  if (codePoint >= 0xf900 && codePoint <= 0xfaff) return true
+  if (codePoint >= 0xfe10 && codePoint <= 0xfe19) return true
+  if (codePoint >= 0xfe30 && codePoint <= 0xfe6b) return true
+  if (codePoint >= 0xff01 && codePoint <= 0xff60) return true
+  if (codePoint >= 0xffe0 && codePoint <= 0xffe6) return true
+  if (codePoint >= 0x1b000 && codePoint <= 0x1b001) return true
+  if (codePoint >= 0x1f200 && codePoint <= 0x1f251) return true
+  if (codePoint >= 0x20000 && codePoint <= 0x3fffd) return true
+  return false
+}
+
+function isWideGrapheme(grapheme: string) {
+  if (!grapheme) return false
+  if (grapheme === CONTINUATION_CELL) return false
+  for (const ch of grapheme) {
+    const cp = ch.codePointAt(0) ?? 0
+    if (cp === 0x200d) return true
+    if (cp === 0xfe0f) return true
+    if (cp >= 0x1f300 && cp <= 0x1faff) return true
+    if (isFullWidthCodePoint(cp)) return true
+  }
+  return false
+}
+
+export function cellDisplayWidth(grapheme: string) {
+  return isWideGrapheme(grapheme) ? 2 : 1
+}
+
 export function toCells(text: string) {
   if (!text) return []
   if (!segmenter) return Array.from(text)
@@ -17,13 +54,57 @@ export function toDisplayText(text: string) {
 }
 
 export function cellLength(text: string) {
-  return toCells(text).length
+  const cells = toCells(text)
+  let len = 0
+  for (let i = 0; i < cells.length; i += 1) {
+    const ch = cells[i] ?? ''
+    if (ch === CONTINUATION_CELL) {
+      len += 1
+      continue
+    }
+    const w = cellDisplayWidth(ch)
+    if (w === 2 && (cells[i + 1] ?? '') === CONTINUATION_CELL) {
+      len += 2
+      let j = i + 1
+      while ((cells[j] ?? '') === CONTINUATION_CELL) j += 1
+      i = j - 1
+      continue
+    }
+    len += w
+  }
+  return len
 }
 
 export function sliceCells(text: string, width: number) {
+  if (!(width > 0)) return ''
   const cells = toCells(text)
-  if (cells.length <= width) return text
-  return cells.slice(0, width).join('')
+  const out: string[] = []
+  let col = 0
+  for (let i = 0; i < cells.length; i += 1) {
+    const ch = cells[i] ?? ''
+    if (!ch) continue
+    if (ch === '\n' || ch === '\r') break
+    if (ch === CONTINUATION_CELL) {
+      if (col + 1 > width) break
+      out.push(CONTINUATION_CELL)
+      col += 1
+      continue
+    }
+    const w = cellDisplayWidth(ch)
+    if (w === 2) {
+      if (col + 2 > width) break
+      out.push(ch, CONTINUATION_CELL)
+      col += 2
+      let j = i + 1
+      while ((cells[j] ?? '') === CONTINUATION_CELL) j += 1
+      i = j - 1
+      continue
+    }
+    if (col + 1 > width) break
+    out.push(ch)
+    col += 1
+  }
+  return out.join('')
 }
 
 export function padCells(text: string, width: number) {
@@ -33,5 +114,49 @@ export function padCells(text: string, width: number) {
 }
 
 export function getCellAt(text: string, index: number) {
-  return toCells(text)[index] ?? ' '
+  if (!(index >= 0)) return ' '
+  const cells = toCells(text)
+  let col = 0
+  for (let i = 0; i < cells.length; i += 1) {
+    const ch = cells[i] ?? ''
+    if (!ch) continue
+    if (ch === CONTINUATION_CELL) {
+      if (col === index) return CONTINUATION_CELL
+      col += 1
+      continue
+    }
+    const w = cellDisplayWidth(ch)
+    if (w === 2) {
+      if (col === index) return ch
+      if (col + 1 === index) return CONTINUATION_CELL
+      col += 2
+      let j = i + 1
+      while ((cells[j] ?? '') === CONTINUATION_CELL) j += 1
+      i = j - 1
+      continue
+    }
+    if (col === index) return ch
+    col += 1
+  }
+  return ' '
+}
+
+export function toInternalText(text: string) {
+  if (!text) return ''
+  const cells = toCells(text.replace(/\r\n/g, '\n'))
+  const out: string[] = []
+  for (const ch of cells) {
+    if (ch === '\r') continue
+    if (ch === '\n') {
+      out.push('\n')
+      continue
+    }
+    if (ch === CONTINUATION_CELL) {
+      out.push(CONTINUATION_CELL)
+      continue
+    }
+    out.push(ch)
+    if (cellDisplayWidth(ch) === 2) out.push(CONTINUATION_CELL)
+  }
+  return out.join('')
 }

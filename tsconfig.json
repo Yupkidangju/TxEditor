@@ -11,9 +11,8 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
-    "types": ["vitest/globals"],
+    "types": ["vitest/globals", "node"],
     "baseUrl": "."
   },
   "include": ["src", "vite.config.ts", "eslint.config.js"]
 }
-

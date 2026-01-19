@@ -9,7 +9,6 @@ src-tauri/gen/
 
 # Build automation
 .build/
-out/
 
 # IDE
 .idea/

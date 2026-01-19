@@ -50,9 +50,32 @@ function fileSize(filePath) {
   return st.size
 }
 
+function sleepMs(ms) {
+  if (!(ms > 0)) return
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
 function copyFile(src, dst) {
   ensureDir(path.dirname(dst))
   fs.copyFileSync(src, dst)
+}
+
+function copyFileRetry(src, dst, opts) {
+  const tries = opts?.tries ?? 12
+  const initialDelayMs = opts?.initialDelayMs ?? 80
+  let lastErr = null
+  for (let i = 0; i < tries; i += 1) {
+    try {
+      copyFile(src, dst)
+      return { ok: true, path: dst }
+    } catch (err) {
+      lastErr = err
+      const code = err?.code
+      if (code !== 'EBUSY' && code !== 'EPERM') return { ok: false, path: dst, error: err }
+      sleepMs(initialDelayMs * (i + 1))
+    }
+  }
+  return { ok: false, path: dst, error: lastErr }
 }
 
 function sanitizeFileName(name) {
@@ -133,14 +156,15 @@ const ext = process.platform === 'win32' ? '.exe' : ''
 const outMain = path.join(outDir, `${productName}${ext}`)
 const outVersioned = path.join(outDir, `${productName}-${version}-${platform}-${arch}${ext}`)
 
-copyFile(builtExe, outMain)
-copyFile(builtExe, outVersioned)
+const copiedVersioned = copyFileRetry(builtExe, outVersioned)
+if (!copiedVersioned.ok) fail(`out 복사 실패: ${outVersioned}${copiedVersioned.error ? ` (${copiedVersioned.error.code ?? 'unknown'})` : ''}`)
 
-if (!fs.existsSync(outMain)) fail(`out 복사 실패: ${outMain}`)
-if (!fs.existsSync(outVersioned)) fail(`out 복사 실패: ${outVersioned}`)
+const copiedMain = copyFileRetry(builtExe, outMain)
+const verifyPath = copiedMain.ok ? outMain : outVersioned
 
 console.log(`\n[OK] 산출물 복사 완료`)
-console.log(`- ${outMain} (${fileSize(outMain)} bytes)`)
+if (copiedMain.ok) console.log(`- ${outMain} (${fileSize(outMain)} bytes)`)
+else console.log(`- ${outMain} (복사 실패: ${copiedMain.error?.code ?? 'unknown'})`)
 console.log(`- ${outVersioned} (${fileSize(outVersioned)} bytes)`)
 
 const bundleRoot = path.join(root, 'src-tauri', 'target', 'release', 'bundle')
@@ -182,5 +206,5 @@ if (bundled && bundledOut.length > 0) {
 }
 
 console.log(`\n[STEP] 최종 검증(실행 스모크 테스트)`)
-verifyExecutable(outMain)
+verifyExecutable(verifyPath)
 console.log(`[OK] 최종 검증 완료`)

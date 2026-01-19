@@ -1,0 +1,224 @@
+TxEditor 사용 메뉴얼 (v0.2)
+
+====================
+한국어
+====================
+
+1) 빠른 시작
+- 상단 메뉴(File) 또는 좌측 상단의 파일 아이콘으로 새 버퍼를 만들거나(New Buffer) 파일을 엽니다(Open).
+- 새 버퍼는 80x24 / 120x80 / 160x100 템플릿 또는 Custom(너비/높이)로 생성합니다.
+
+2) 도구(Tools)
+- Text: 클릭한 셀을 기준으로 입력합니다. Enter는 “바로 아래 셀(열 유지)”로 이동합니다.
+- Select: 드래그로 사각형 선택을 만들고, 복사/잘라내기/붙여넣기/삭제를 수행합니다.
+  - 붙여넣기: Select 도구에서 “붙여넣기할 위치를 클릭”한 뒤 붙여넣으면, 클릭한 셀을 좌상단 기준으로 오른쪽/아래 방향으로 붙습니다(범위 밖은 자동 절단).
+- Rectangle / Ortholine / Arrow / Freeform: 드래그(또는 프리폼은 연속 드래그)로 그립니다.
+  - Style: ASCII / Unicode 스타일을 선택합니다.
+  - Freeform: Draw char(#/$/%)로 그릴 문자를 선택합니다.
+- 그리기/선택 중 Esc를 누르면 동작이 취소됩니다.
+
+3) 편집(Selection/Undo)
+- Undo/Redo: Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z 또는 Ctrl/Cmd+Y
+- 선택 삭제: Select 도구에서 선택이 있을 때 Delete 또는 Backspace
+- 복사/잘라내기/붙여넣기: Select 도구에서 Ctrl/Cmd+C / X / V
+
+4) 찾기/바꾸기
+- 찾기: Ctrl/Cmd+F
+- 바꾸기: Ctrl/Cmd+H
+- 열려 있는 동안 Esc로 닫습니다.
+
+5) 도형 삽입(Insert figure)
+- Ctrl+Shift+I 또는 Insert Figure 버튼에서 폭/높이를 지정해 텍스트 도형을 삽입합니다.
+
+6) 파일(열기/저장)
+- 열기: Ctrl/Cmd+O
+- 저장: Ctrl/Cmd+S, 저장 대화상자 강제(다른 이름으로 저장): Ctrl/Cmd+Shift+S
+- Newline: LF / CRLF(Windows) 선택
+- Save 옵션: “Pad right spaces on save”(저장 시 우측 공백 채우기)
+- Recent/Pinned: 최근 파일, 고정(Pin) 목록을 File 메뉴에서 관리합니다(Manage recent files).
+
+7) 설정(Settings)
+- 우측 상단의 톱니바퀴 버튼에서 언어(Language)와 테마(Theme)를 변경합니다.
+
+참고
+- 한글/이모지 등 광폭 문자는 2칸 셀을 차지합니다.
+
+--------------------
+English
+--------------------
+
+TxEditor User Manual (v0.2)
+
+1) Quick Start
+- Use the top menu (File) or the file icon to create a New Buffer or Open a file.
+- New Buffer supports 80x24 / 120x80 / 160x100 templates and Custom (Width/Height).
+
+2) Tools
+- Text: click a cell and type. Enter moves to the cell directly below (same column).
+- Select: drag to create a rectangular selection, then Copy/Cut/Paste/Delete.
+  - Paste: in Select tool, click the destination cell, then paste. The clicked cell becomes the top-left anchor; content is placed to the right/bottom (clipped at bounds).
+- Rectangle / Ortholine / Arrow / Freeform: draw by dragging (freeform draws continuously).
+  - Style: choose ASCII or Unicode.
+  - Freeform: choose Draw char (#/$/%).
+- Press Esc to cancel an active draw/selection gesture.
+
+3) Editing (Selection/Undo)
+- Undo/Redo: Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y
+- Delete selection: Delete or Backspace (when a selection exists in Select tool)
+- Copy/Cut/Paste: Ctrl/Cmd+C / X / V (Select tool)
+
+4) Find/Replace
+- Find: Ctrl/Cmd+F
+- Replace: Ctrl/Cmd+H
+- Press Esc to close.
+
+5) Insert Figure
+- Ctrl+Shift+I (or Insert Figure button), set width/height, then insert.
+
+6) Files (Open/Save)
+- Open: Ctrl/Cmd+O
+- Save: Ctrl/Cmd+S, Force “Save As” dialog: Ctrl/Cmd+Shift+S
+- Newline: LF or CRLF (Windows)
+- Save option: “Pad right spaces on save”
+- Recent/Pinned: manage from File menu (Manage recent files).
+
+7) Settings
+- Use the gear button (top-right) to change Language and Theme.
+
+Note
+- Wide graphemes (Hangul/emoji/etc.) occupy 2 cells.
+
+--------------------
+日本語
+--------------------
+
+TxEditor 簡易マニュアル (v0.2)
+
+1) クイックスタート
+- 上部メニュー(File) またはファイルアイコンから New Buffer/ Open を実行します。
+- New Buffer は 80x24 / 120x80 / 160x100 テンプレート、または Custom(幅/高さ)に対応します。
+
+2) ツール
+- Text: セルをクリックして入力します。Enter は「同じ列の直下セル」へ移動します。
+- Select: ドラッグで矩形選択し、Copy/Cut/Paste/Delete を行います。
+  - Paste: Select で貼り付け先セルをクリックしてから貼り付けると、クリック位置が左上基準となり右/下へ配置されます（範囲外は自動で切り捨て）。
+- Rectangle / Ortholine / Arrow / Freeform: ドラッグで描画します（Freeform は連続描画）。
+  - Style: ASCII / Unicode を選択します。
+  - Freeform: Draw char(#/$/%) を選択します。
+- 描画/選択中は Esc でキャンセルできます。
+
+3) 編集（選択/Undo）
+- Undo/Redo: Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z または Ctrl/Cmd+Y
+- 選択削除: Select で選択がある場合 Delete または Backspace
+- Copy/Cut/Paste: Select で Ctrl/Cmd+C / X / V
+
+4) 検索/置換
+- 検索: Ctrl/Cmd+F
+- 置換: Ctrl/Cmd+H
+- Esc で閉じます。
+
+5) 図形挿入（Insert figure）
+- Ctrl+Shift+I（または Insert Figure ボタン）で幅/高さを指定して挿入します。
+
+6) ファイル（開く/保存）
+- 開く: Ctrl/Cmd+O
+- 保存: Ctrl/Cmd+S、別名保存ダイアログ強制: Ctrl/Cmd+Shift+S
+- Newline: LF / CRLF(Windows)
+- Save オプション: “Pad right spaces on save”
+- Recent/Pinned: File メニューから管理します（Manage recent files）。
+
+7) 設定
+- 右上の歯車ボタンで Language / Theme を変更します。
+
+注意
+- 全角/広幅文字（ハングル/絵文字など）は 2 セルを使用します。
+
+--------------------
+中文（繁體）
+--------------------
+
+TxEditor 使用手冊（簡易版，v0.2）
+
+1) 快速開始
+- 使用上方選單（File）或左上角檔案圖示來 New Buffer 或 Open。
+- New Buffer 支援 80x24 / 120x80 / 160x100 模板，以及 Custom（寬/高）。
+
+2) 工具
+- Text：點擊儲存格後輸入。Enter 會移動到正下方儲存格（維持同一欄）。
+- Select：拖曳建立矩形選取，然後 Copy/Cut/Paste/Delete。
+  - Paste：在 Select 工具中先點擊貼上位置，再貼上；點擊的儲存格會成為左上基準，內容向右/下放置（超出範圍自動裁切）。
+- Rectangle / Ortholine / Arrow / Freeform：以拖曳方式繪製（Freeform 連續繪製）。
+  - Style：選擇 ASCII 或 Unicode。
+  - Freeform：選擇 Draw char（#/$/%）。
+- 繪製/選取進行中可按 Esc 取消。
+
+3) 編輯（選取/復原）
+- Undo/Redo：Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z 或 Ctrl/Cmd+Y
+- 刪除選取：在 Select 工具且有選取時，按 Delete 或 Backspace
+- Copy/Cut/Paste：在 Select 工具中按 Ctrl/Cmd+C / X / V
+
+4) 尋找/取代
+- 尋找：Ctrl/Cmd+F
+- 取代：Ctrl/Cmd+H
+- Esc 關閉。
+
+5) 插入圖形（Insert figure）
+- Ctrl+Shift+I（或 Insert Figure 按鈕）設定寬/高後插入。
+
+6) 檔案（開啟/儲存）
+- 開啟：Ctrl/Cmd+O
+- 儲存：Ctrl/Cmd+S，強制另存對話框：Ctrl/Cmd+Shift+S
+- Newline：LF / CRLF(Windows)
+- Save 選項：“Pad right spaces on save”
+- Recent/Pinned：可在 File 選單中管理（Manage recent files）。
+
+7) 設定
+- 右上角齒輪按鈕可調整 Language 與 Theme。
+
+備註
+- 全形/寬字元（韓文/表情符號等）會佔用 2 格。
+
+--------------------
+中文（简体）
+--------------------
+
+TxEditor 使用手册（简版，v0.2）
+
+1) 快速开始
+- 使用上方菜单（File）或左上角文件图标来 New Buffer 或 Open。
+- New Buffer 支持 80x24 / 120x80 / 160x100 模板，以及 Custom（宽/高）。
+
+2) 工具
+- Text：点击单元格后输入。Enter 会移动到正下方单元格（保持同一列）。
+- Select：拖拽建立矩形选择，然后 Copy/Cut/Paste/Delete。
+  - Paste：在 Select 工具中先点击粘贴位置再粘贴；点击的单元格作为左上锚点，内容向右/下放置（越界自动裁切）。
+- Rectangle / Ortholine / Arrow / Freeform：通过拖拽绘制（Freeform 连续绘制）。
+  - Style：选择 ASCII 或 Unicode。
+  - Freeform：选择 Draw char（#/$/%）。
+- 绘制/选择进行中可按 Esc 取消。
+
+3) 编辑（选择/撤销）
+- Undo/Redo：Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z 或 Ctrl/Cmd+Y
+- 删除选择：在 Select 工具且有选择时，按 Delete 或 Backspace
+- Copy/Cut/Paste：在 Select 工具中按 Ctrl/Cmd+C / X / V
+
+4) 查找/替换
+- 查找：Ctrl/Cmd+F
+- 替换：Ctrl/Cmd+H
+- Esc 关闭。
+
+5) 插入图形（Insert figure）
+- Ctrl+Shift+I（或 Insert Figure 按钮）设置宽/高后插入。
+
+6) 文件（打开/保存）
+- 打开：Ctrl/Cmd+O
+- 保存：Ctrl/Cmd+S，强制另存对话框：Ctrl/Cmd+Shift+S
+- Newline：LF / CRLF(Windows)
+- Save 选项：“Pad right spaces on save”
+- Recent/Pinned：可在 File 菜单中管理（Manage recent files）。
+
+7) 设置
+- 右上角齿轮按钮可调整 Language 和 Theme。
+
+备注
+- 全角/宽字符（韩文/表情符号等）会占用 2 格。
